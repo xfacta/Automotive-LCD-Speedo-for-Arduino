@@ -10,8 +10,8 @@
 - Park brake warning
 - Uses pulseIn , no interupts
 - Odometer saved to EEPROM with wear-leveling
-- and two redundant copies of the odometer value
-- EEPROM write denied during power-down
+  - and two redundant copies of the odometer value
+  - EEPROM write denied during power-down
 - Offloaded sounds to external Leonardo Tiny
 
 
