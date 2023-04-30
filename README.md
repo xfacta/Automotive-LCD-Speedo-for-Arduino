@@ -3,7 +3,7 @@
 
 - AT Mega2560 and 3.5" 320x480 LCD display
 - Speedometer and Trip meter with ParkBrake warning
-- Large text with km travelled
+- Large text with odometer and tripmeter
 - Bar style graphical meter
 - Normal direction of bar to pair with tachometer
 - Dim display on "lights" input
@@ -14,6 +14,8 @@
 - EEPROM write denied during power-down
 - Offloaded sounds to external Leonardo Tiny
 
+
+![Speedo](https://user-images.githubusercontent.com/41600026/235333207-a595d535-98fc-47c0-98f7-3b01ea459ce4.PNG)
 
 
 ### Uses 
