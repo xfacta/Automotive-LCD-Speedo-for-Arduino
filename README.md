@@ -42,11 +42,11 @@ Speed_Marker_1 = 39;                  // set 1st speed marker on bar graph
 Speed_Marker_2 = 58;                  // set 2nd speed marker on bar graph
 Speed_Marker_3 = 97;                  // set 3rd speed marker on bar graph
 
-float kludge_factor = 0.996;          // manual scaling of km/hr if needed
+kludge_factor = 0.996;                // manual scaling of km/hr if needed
 
-const float vcc_ref = 4.92;           // measure the 5 volts DC and set it here
-const float R1 = 1200.0;              // measure and set the exact voltage divider values
-const float R2 = 3300.0;              // for accurate voltage measurements
+vcc_ref = 4.92;                       // measure the 5 volts DC and set it here
+R1 = 1200.0;                          // measure and set the exact voltage divider values
+R2 = 3300.0;                          // for accurate voltage measurements
 ```
 
 `Kludge_Factor` is a way of adjusting timing since all Arduino crystals will be slightly different.
