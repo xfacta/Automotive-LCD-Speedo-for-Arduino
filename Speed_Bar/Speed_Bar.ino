@@ -39,7 +39,7 @@ const float vcc_ref = 4.92;  // measure the 5 volts DC and set it here
 const float R1 = 1200.0;     // measure and set the voltage divider values
 const float R2 = 3300.0;     // for accurate voltage measurements
 
-const float Safe_Voltage = 0.0;  // set to 11.0
+const float Safe_Voltage = 0.0;  // set to 11.0 for real usage
 
 //========================================================================
 
