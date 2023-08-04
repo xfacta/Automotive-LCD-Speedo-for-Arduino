@@ -6,11 +6,12 @@
 // Dim display on parker lights
 // Park brake warning
 // Uses pulseIn , no interupts
-// Odometer saved to EEPROM
+// Odometer saved to EEPROM wear leveling circular buffer
 // with EEPROM write denied during power-down
+// Improved EEPROM checks
 // Offloaded sounds to external Leonardo Tiny
 // Updated version so all modules are using the same numbering
-
+// Added button debounce
 
 // UTFT Libraries
 // Copyright (C)2015 Rinky-Dink Electronics, Henning Karlsen. All right reserved
@@ -18,7 +19,7 @@
 
 
 
-#define Version "Speed Bar V14"
+const auto Version = "Speed Bar V15";
 
 
 
@@ -54,28 +55,38 @@ bool Demo_Mode = true;
 
 
 
-// Using the inbuilt eeprom to save the odometer value
-#include <EEPROM.h>
-
 // Using the EEWL EEPROM wear level library to spread data over the EEPROM
 #include <eewl.h>
+// pulls in <EEPROM.h> too
 // setting 100 blocks = 100*5 bytes = 500 bytes, approx 500*100000 writes
 // Changing these values will cause the EEPROM variables to be cleared
 #define BUFFER_LEN 100      // number of data blocks (1 blk = 1 ulong = 4 bytes) + 1 byte overhead
 #define BUFFER_START1 100   // EEPROM address where buffer1/Odo1 starts (UL)
 #define BUFFER_START2 700   // EEPROM address where buffer2/Odo1 starts (UL)
-#define BUFFER_START3 1300  // EEPROM address where buffer3/Check starts (int)
+#define BUFFER_START3 1300  // EEPROM address where buffer3/Check1 starts (int)
+#define BUFFER_START4 1900  // EEPROM address where buffer34/Check2 starts (int)
+//#define EEWL_RAM          // for testing in RAM
+//#define EEWL_DEBUG
 
+// EEWL Keywords
+/*
+begin
+fastFormat
+get
+put	
+*/
 
 // Screen and font stuff
 // more fonts use more memory
 #include <UTFT.h>
-#include <UTFT_Geometry.h>  // needed for drawing triangles
+// needed for drawing triangles
+#include <UTFT_Geometry.h>
 
 UTFT myGLCD(ILI9481, 38, 39, 40, 41);
 UTFT_Geometry geo(&myGLCD);
 
 // Declare which fonts we will be using
+// and comment out the rest
 //extern uint8_t SmallFont[];
 //extern uint8_t BigFont[];
 extern uint8_t franklingothic_normal[];
@@ -129,7 +140,6 @@ int startup_time = 10000;
 const float Input_Multiplier = vcc_ref / 1024.0 / (R2 / (R1 + R2));
 
 
-
 // Common pin definitions
 const int SD_Select = 53;
 
@@ -164,12 +174,13 @@ const int Warning_Pin = 11;  // Link to external Leonardo for general warning so
 // Times of last important events
 uint32_t distLoopTime;  // used to measure the next loop time
 uint32_t distIntTime;   // Interval time between loops
+int Button_State;
 
 
 // Speed variables
 float freq, vss, distance_per_VSS_pulse, pulses_per_km;
 int vspeed, last_vspeed;
-unsigned long period, lowtime, hightime, pulsein_timeout;
+uint32_t period, lowtime, hightime, pulsein_timeout;
 int speed_x = 54, speed_y = 75;
 
 
@@ -180,12 +191,11 @@ int PB_x = 410, PB_y = 120;
 
 //Distance variables
 float avg_vspeed, DistM, DistINTm, DistTotalm, DistKM;
+float Odometer_Temp;  // in meters
 int dist_x = 260, dist_y = 240;
 int odo_x = 20, odo_y = 240;
-unsigned long OdometerTotal, OdometerVerify, Odometer1, Odometer2;  // Odo values read and writen to eeprom in km
-float OdometerTemp;                                                 // in meters
-byte Check_Byte;                                                    // Byte to say which odo value was last written OK
-
+uint32_t OdometerTotal, OdometerVerify, Odometer1, Odometer2, Check_1, Check_2;  // Odo values read and writen to eeprom in km
+//int Odo1_error, Odo2_error, Chk1_error, Chk2_error;                              // flags for correct fifo operation
 
 // Meter variables
 int blocks, new_val, num_segs, seg_size, x1, x2, block_colour;
@@ -197,10 +207,12 @@ const int seg_gap = 2;                   // gap between segments in pixels
 const int meterMin = 0, meterMax = 200;  // bar scale
 
 
-// Start a Class for each Odomoter and Check_Byte counter
+// Start a Class for each Odomoter and Check
 EEWL Odo1_EEPROM(Odometer1, BUFFER_LEN, BUFFER_START1);
 EEWL Odo2_EEPROM(Odometer2, BUFFER_LEN, BUFFER_START2);
-EEWL Check_EEPROM(Check_Byte, BUFFER_LEN, BUFFER_START3);
+EEWL Chk1_EEPROM(Check_1, BUFFER_LEN, BUFFER_START3);
+EEWL Chk2_EEPROM(Check_2, BUFFER_LEN, BUFFER_START4);
+
 
 
 // ##################################################################################################################################################
@@ -235,79 +247,19 @@ void setup() {
   pinMode(Power_Good_Pin, INPUT);
 
 
+
   // =======================================================
   // Calculate the distance travelled per VSS pulse
   // based on tyre size, diff ratio and VSS pulses per tailshaft revolution, in millimeters
-
   distance_per_VSS_pulse = tyre_dia * PI / diff_r / vss_rev;  // millimeters
   pulses_per_km = 1000000.0 / distance_per_VSS_pulse;
-
   // =======================================================
+
 
   // Maximum time pulsein will wait for a signal in microseconds
   // Use period of lowest expected frequency from
   // diff_r , tyre_dia , vss_rev and Min_vspeed
   pulsein_timeout = 1000000.0 / (pulses_per_km * Min_vspeed / 3600.0) * 2.0;
-
-
-  // Start the wear-leveling classes for EEPROM
-  // this also initiates .fastFormat() on first use or no valid values
-  Odo1_EEPROM.begin();
-  Odo2_EEPROM.begin();
-  Check_EEPROM.begin();
-
-  // Read Odometer values from EEPROM
-  // First ever use or unreadable values sets them to 100000
-  // Use the highest value available as the valid Odometer
-
-  Check_EEPROM.get(Check_Byte);
-
-  switch (Check_Byte) {
-    // Check Byte 1 indicates ONLY Odo1 was written successfully, but not Odo2
-    case 1:
-      Odo1_EEPROM.get(Odometer1);
-      Odometer2 = Odometer1;
-      break;
-
-    // Check Byte 2 indicates ONLY Odo2 was written successfully, but not Odo1
-    case 2:
-      Odo2_EEPROM.get(Odometer2);
-      Odometer1 = Odometer2;
-      break;
-
-    // Check Byte 3 indicates Odo1 and Odo2 was written successfully, use either
-    case 3:
-      Odo1_EEPROM.get(Odometer1);
-      Odo2_EEPROM.get(Odometer2);
-      break;
-
-    // Check Byte not set, maybe first run
-    // There might be junk values, try to read them
-    // otherwise set new default values
-    default:
-      Odo1_EEPROM.get(Odometer1);
-      if ((Odometer1 < 100000) || (Odometer1 > 999999)) {
-        Odometer1 = 100000;
-      }
-
-      Odo2_EEPROM.get(Odometer2);
-      if ((Odometer2 < 100000) || (Odometer2 > 999999)) {
-        Odometer2 = 100000;
-      }
-  }
-
-  // Catch-all if the Switch/Case routine doesnt work as expected
-  // Whichever can be read successfully from EEPROM or is greater
-  // becomes the new Odo value
-  if (Odometer2 > Odometer1) {
-    Odometer1 = Odometer2;
-  } else if (Odometer1 > Odometer2) {
-    Odometer2 = Odometer1;
-  }
-  // but dont write any new values to EEPROM until loops have been completed
-
-  // Set the working Odo total from a valid saved value
-  OdometerTotal = Odometer1;
 
 
   // set some more values for the bar graph
@@ -317,25 +269,140 @@ void setup() {
   linearBarX = linearBarX + (barLength - num_segs * seg_size) / 2;        // centre the bar to allow for rounding errors
 
 
-  // Clear the screen and display static items
+  // Display important startup items
   myGLCD.InitLCD(LANDSCAPE);
   myGLCD.clrScr();
   myGLCD.setColor(VGA_GRAY);
   myGLCD.setBackColor(VGA_BLACK);
   myGLCD.setFont(font0);
   myGLCD.print(Version, CENTER, CENTER);
-  delay(2000);
+
+
+  // Start the wear-leveling classes for EEPROM
+  // this also initiates .fastFormat() on first use or no valid values
+  // 101428km = the default minimum odometer value, just because
+  // maximum 32bit unsigned integer = 4294967295 - 101428 = 4294865867
+  Odo1_EEPROM.begin();
+  Odo2_EEPROM.begin();
+  Chk1_EEPROM.begin();
+  Chk2_EEPROM.begin();
+
+  // Try to read saved values
+  Odo1_EEPROM.get(Odometer1);
+  Odo2_EEPROM.get(Odometer2);
+  Chk1_EEPROM.get(Check_1);
+  Chk2_EEPROM.get(Check_2);
+
+  // Consistency checks
+  // At least one of the values was within a valid range
+  if (Odometer1 == Odometer2 && Check_1 == Check_2 && Odometer1 + Check_1 == 0 && Odometer1 >= 101428) {
+    // All good to go
+    myGLCD.setColor(VGA_GREEN);
+    myGLCD.print((char *)" ALL EEPROM GOOD ", CENTER, 150);
+  } else {
+    // Something might still be usable
+    if (Odometer1 >= 101428 || Odometer2 >= 101428 || Check_1 <= 4294865867 || Check_2 <= 4294865867) {
+
+      if (Odometer1 == Odometer2 && Check_1 != Check_2) {
+        if (Odometer1 + Check_1 == 0) {
+          //Check2 is wrong
+          Check_2 = Check_1;
+          myGLCD.setColor(VGA_YELLOW);
+          myGLCD.print((char *)"    Chk_2 bad    ", CENTER, 200);
+        }
+        //Check1 is wrong
+        else {
+          Check_1 = Check_2;
+          myGLCD.setColor(VGA_YELLOW);
+          myGLCD.print((char *)"    Chk_1 bad    ", CENTER, 100);
+        }
+      }
+
+      if (Odometer1 != Odometer2 && Check_1 == Check_2) {
+        if (Odometer1 + Check_1 == 0) {
+          //Odo2 is wrong
+          Odometer2 = Odometer1;
+          myGLCD.setColor(VGA_YELLOW);
+          myGLCD.print((char *)"    ODO_2 bad    ", CENTER, 200);
+        }
+        //Odo1 is wrong
+        else {
+          Odometer1 = Odometer2;
+          myGLCD.setColor(VGA_YELLOW);
+          myGLCD.print((char *)"    ODO_1 bad    ", CENTER, 100);
+        }
+      }
+
+      if (Odometer1 != Odometer2 && Check_1 != Check_2) {
+        if (Odometer1 > Odometer2 || Check_2 < Check_1) {
+          if (Odometer1 + Check_2 == 0) {
+            // Odo2 and Check1 are wrong
+            Odometer2 = Odometer1;
+            Check_1 = Check_2;
+            myGLCD.setColor(VGA_YELLOW);
+            myGLCD.print((char *)" Chk_1 ODO_2 bad ", CENTER, 200);
+          } else if (Odometer2 + Check_1 == 0) {
+            // Odo1 and Check2 are wrong
+            Odometer1 = Odometer2;
+            Check_2 = Check_1;
+            myGLCD.setColor(VGA_YELLOW);
+            myGLCD.print((char *)" Chk_2 ODO_1 bad ", CENTER, 100);
+          }
+        }
+      }
+
+    } else {
+      // Nothing was within range
+      myGLCD.setColor(VGA_RED);
+      myGLCD.print((char *)" ALL EEPROM BAD  ", CENTER, 150);
+    }
+
+    // Catch All
+    // Set default values or best guess
+    OdometerTotal = max(101428, Odometer1);
+    OdometerTotal = max(Odometer1, Odometer2);
+    OdometerVerify = min(4294865867, Check_1);
+    OdometerVerify = min(Check_1, Check_2);
+    if (OdometerVerify - OdometerTotal > 0) {
+      OdometerTotal = 0 - OdometerVerify;
+    } else {
+      OdometerVerify = 0 - OdometerTotal;
+    }
+
+    Odometer1 = Odometer2 = OdometerTotal;
+    Check_1 = Check_2 = OdometerVerify;
+
+    // Try to write the updated valid values
+    if (power_good()) {
+      Odo1_EEPROM.put(Odometer1);
+      Odo2_EEPROM.put(Odometer2);
+      Chk1_EEPROM.put(Check_1);
+      Chk2_EEPROM.put(Check_2);
+    }
+
+  }  // end of "else" for everything was good
+  // So we didnt need to write any repaired values to EEPROM
+
+  // Leave the important messages onscreen for a few seconds
+  delay(4000);
+
+  // Clear the screen and display static items
   myGLCD.clrScr();
-  myGLCD.print("km/h", speed_x + 300, speed_y + 124);
-  //myGLCD.print("km", dist_x + 210, dist_y + 32);
-  //myGLCD.print("km", odo_x + 210, odo_y + 32);
+  myGLCD.setColor(VGA_GRAY);
+  myGLCD.setBackColor(VGA_BLACK);
+  myGLCD.setFont(font0);
+  myGLCD.print((char *)"km/h", speed_x + 300, speed_y + 124);
+  //myGLCD.print((char*) "km", dist_x + 210, dist_y + 32);
+  //myGLCD.print((char*) "km", odo_x + 210, odo_y + 32);
 
 
-  // Set calibration mode from button input
+  // Set calibration mode from long-press button input
+  // during startup
   if (digitalRead(Button_Pin) == LOW) {
-    // wait and see if the button input is still low
-    delay(100);
-    if (digitalRead(Button_Pin) == LOW) Calibration_Mode = true;
+    while (debounce()) {
+      // just wait until button released
+    }
+    Calibration_Mode = true;
   }
 
 
@@ -369,6 +436,26 @@ void setup() {
 
 
 // ##################################################################################################################################################
+
+
+// A couple of reusable tests
+// =======================================================
+
+bool debounce() {
+  Button_State = 0;
+  Button_State = (Button_State << 1) | digitalRead(Button_Pin) | 0xfe00;
+  return (Button_State == 0xff00);
+}  // end bool debounce
+
+// =======================================================
+
+bool power_good() {
+  return ((analogRead(Power_Good_Pin) * int(Input_Multiplier)) >= Safe_Voltage);
+}
+
+// =======================================================
+
+
 // ##################################################################################################################################################
 
 
@@ -380,11 +467,8 @@ void loop() {
   // =======================================================
 
   if (digitalRead(Button_Pin) == LOW) {
-    // wait and see if the button input is still low
-    delay(100);
-    if (digitalRead(Button_Pin) == LOW) DistTotalm = 0;
+    if (debounce()) DistTotalm = 0;
   }
-
 
   // =======================================================
   // Dim display when headlights on
@@ -418,7 +502,7 @@ void loop() {
     myGLCD.setFont(font7F);
     myGLCD.setColor(VGA_BLACK);
     myGLCD.setBackColor(VGA_RED);
-    myGLCD.print("P", PB_x, PB_y);
+    myGLCD.print((char *)"P", PB_x, PB_y);
     myGLCD.setBackColor(VGA_BLACK);
 
     // sound a warning tone if vehicle is moving
@@ -429,7 +513,7 @@ void loop() {
     myGLCD.setFont(font7F);
     myGLCD.setColor(VGA_BLACK);
     myGLCD.setBackColor(VGA_BLACK);
-    myGLCD.print(" ", PB_x, PB_y);
+    myGLCD.print((char *)" ", PB_x, PB_y);
   }
 
 
@@ -510,47 +594,35 @@ void loop() {
 
   // add to Odometer
   // keep it in meters until saving to odometer
-  OdometerTemp += DistINTm;
+  Odometer_Temp += DistINTm;
 
   // If 1 km or more has been accumulated write it
   // to the permenant odo and reset the temporary value
-  if (OdometerTemp >= 1000) {
-    OdometerTotal += round(OdometerTemp / 1000.0);
+  if (Odometer_Temp >= 1000) {
+    OdometerTotal += round(Odometer_Temp / 1000.0);
 
-    // Display the new Odo total only when the values is updated
+    // Display the new Odo total since the value has just updated
     myGLCD.printNumI(OdometerTotal, odo_x, odo_y, 6, ' ');
 
     // Write OdometerTotal to Odometer1 and Odometer2
-    // only if Power is good
-    Odometer1 = OdometerTotal;
-    Odometer2 = OdometerTotal;
-
-    if ((analogRead(Power_Good_Pin) * Input_Multiplier) >= Safe_Voltage) {
-      // Reset the check byte
-      Check_Byte = 0;
-
-      // Write the Odo1 to EEPROM
+    // and save to EEPROM only if Power is good
+    Odometer1 = Odometer2 = OdometerTotal;
+    if (power_good()) {
       Odo1_EEPROM.put(Odometer1);
-      // Check it and set the Check_Byte
-      if (Odo1_EEPROM.get(OdometerVerify) == Odometer1) {
-        Check_Byte = 1;
-      }
-
-      // Write Odo2 to EEPROM
       Odo2_EEPROM.put(Odometer2);
-      // Check it and set the Check_Byte
-      if (Odo2_EEPROM.get(OdometerVerify) == Odometer2) {
-        Check_Byte += 2;
-      }
-
-      // Write the check byte to EEPROM last
-      Check_EEPROM.put(Check_Byte);
     }
 
-    // Odotemp has reached a 1000m or more and been added to total
-    // reset it and start counting again for the next 1km
-    OdometerTemp = 0;
+    // Calculate and set the Check values
+    OdometerVerify = 0 - OdometerTotal;
+    Check_1 = Check_2 = OdometerVerify;
+    if (power_good()) {
+      Chk1_EEPROM.put(Check_1);
+      Chk2_EEPROM.put(Check_2);
+    }
   }
+  // Odometertemp has reached a 1000m or more and been added to total
+  // reset it and start counting again for the next 1km
+  Odometer_Temp = 0;
 
 
   // =======================================================
