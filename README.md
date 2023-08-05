@@ -9,8 +9,9 @@
 - Dim display on "lights" input
 - Park brake warning
 - Uses pulseIn , no interupts
-- Odometer saved to EEPROM with wear-leveling
+- Odometer saved to EEPROM with wear-leveling thanks to EEWL
   - and two redundant copies of the odometer value
+  - and two reduntant copies of check values
   - EEPROM write denied during power-down
 - Offloaded sounds to external Leonardo Tiny
 
@@ -19,6 +20,8 @@
 
 
 ### Uses 
+EEWL for wear-leveling ring buffer in EEPROM
+
 UTFT Libraries and some associated font files
 
 Copyright (C)2015 Rinky-Dink Electronics, Henning Karlsen. All right reserved
