@@ -10,8 +10,8 @@
 // with EEPROM write denied during power-down
 // Improved EEPROM checks
 // Offloaded sounds to external Leonardo Tiny
-// Updated version so all modules are using the same numbering
-// Added button debounce
+
+
 
 // UTFT Libraries
 // Copyright (C)2015 Rinky-Dink Electronics, Henning Karlsen. All right reserved
@@ -19,7 +19,7 @@
 
 
 
-const auto Version = "Speed Bar V15";
+const auto Version = "Speed Bar V16";
 
 
 
@@ -171,7 +171,6 @@ const int Warning_Pin = 11;  // Link to external Leonardo for general warning so
 // Times of last important events
 uint32_t distLoopTime;  // used to measure the next loop time
 uint32_t distIntTime;   // Interval time between loops
-int Button_State;
 
 
 // Speed variables
@@ -396,10 +395,17 @@ void setup() {
   // Set calibration mode from long-press button input
   // during startup
   if (digitalRead(Button_Pin) == LOW) {
-    while (debounce()) {
+    // Allow time for the button pin to settle
+    // assumes some electronic/external debounce
+    delay(10);
+    while (digitalRead(Button_Pin) == LOW) {
       // just wait until button released
+      myGLCD.setColor(VGA_WHITE);
+      myGLCD.setBackColor(VGA_BLACK);
+      myGLCD.setFont(font0);
+      myGLCD.print((char *)"CAL", LEFT, 80);
+      Calibration_Mode = true;
     }
-    Calibration_Mode = true;
   }
 
 
@@ -432,28 +438,9 @@ void setup() {
 }  // End void setup
 
 
-// ##################################################################################################################################################
-
-
-// A couple of reusable tests
-// =======================================================
-
-bool debounce() {
-  Button_State = 0;
-  Button_State = (Button_State << 1) | digitalRead(Button_Pin) | 0xfe00;
-  return (Button_State == 0xff00);
-}  // end bool debounce
-
-// =======================================================
-
-bool power_good() {
-  return ((analogRead(Power_Good_Pin) * int(Input_Multiplier)) >= Safe_Voltage);
-}
-
-// =======================================================
-
 
 // ##################################################################################################################################################
+
 
 
 void loop() {
@@ -464,8 +451,12 @@ void loop() {
   // =======================================================
 
   if (digitalRead(Button_Pin) == LOW) {
-    if (debounce()) DistTotalm = 0;
+    // Allow time for the button pin to settle
+    // assumes some electronic/external debounce
+    delay(10);
+    if (digitalRead(Button_Pin) == LOW) DistTotalm = 0;
   }
+
 
   // =======================================================
   // Dim display when headlights on
@@ -640,16 +631,18 @@ void loop() {
 
   myGLCD.setFont(font7L);
   if (vspeed <= 99) {
-    // draw a black rectangle where a rogue digit would be
+    // Print a black digit 8 where a rogue digit would be
     // because this large font only has digits, no space char
     if (last_vspeed > 99) {
       myGLCD.setColor(VGA_BLACK);
       myGLCD.setBackColor(VGA_BLACK);
-      myGLCD.fillRect(speed_x, speed_y, speed_x + 96, speed_y + 144);
+      myGLCD.printNumI(8, speed_x, speed_y, 1, '0');
     }
+    // Print the 2 digit speed
     myGLCD.setColor(text_colour1);
     myGLCD.printNumI(vspeed, speed_x + 96, speed_y, 2, '0');
   } else {
+    // Print the 3 digit speed
     myGLCD.setColor(text_colour1);
     myGLCD.printNumI(vspeed, speed_x, speed_y, 3, '0');
   }
@@ -697,9 +690,26 @@ void loop() {
 }  // End void loop
 
 
+
 // ##################################################################################################################################################
 // ##################################################################################################################################################
 
+
+
+// =======================================================
+// Reusable functions
+// =======================================================
+
+
+// =======================================================
+
+bool power_good() {
+  return ((analogRead(Power_Good_Pin) * int(Input_Multiplier)) >= Safe_Voltage);
+}
+
+// =======================================================
+
+// =======================================================
 
 // Function to return a 16 bit rainbow colour
 
@@ -736,8 +746,11 @@ unsigned int rainbow(byte value) {
   return (red << 11) + (green << 5) + blue;
 }
 
+// =======================================================
+
 
 // ##################################################################################################################################################
+
 
 
 void Verify_Write() {
@@ -789,6 +802,7 @@ void Verify_Write() {
 
 
 }  //  end void Verify_Write()
+
 
 
 // ##################################################################################################################################################
