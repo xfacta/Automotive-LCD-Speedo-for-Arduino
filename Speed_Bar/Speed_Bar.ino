@@ -50,6 +50,7 @@ const float Safe_Voltage = 0.0;  // set to 11.0 for real usage
 
 bool Calibration_Mode = false;
 bool Demo_Mode = true;
+bool Debug_Mode = false;
 
 //========================================================================
 
@@ -64,17 +65,8 @@ bool Demo_Mode = true;
 #define BUFFER_START1 100   // EEPROM address where buffer1/Odo1 starts (UL)
 #define BUFFER_START2 700   // EEPROM address where buffer2/Odo1 starts (UL)
 #define BUFFER_START3 1300  // EEPROM address where buffer3/Check1 starts (int)
-#define BUFFER_START4 1900  // EEPROM address where buffer34/Check2 starts (int)
-//#define EEWL_RAM          // for testing in RAM
-//#define EEWL_DEBUG
+#define BUFFER_START4 1900  // EEPROM address where buffer4/Check2 starts (int)
 
-// EEWL Keywords
-/*
-begin
-fastFormat
-get
-put	
-*/
 
 // Screen and font stuff
 // more fonts use more memory
@@ -84,6 +76,12 @@ put
 
 UTFT myGLCD(ILI9481, 38, 39, 40, 41);
 UTFT_Geometry geo(&myGLCD);
+
+// My display needed the ILI8491 driver changed
+// to flip the display
+// LCD_Write_DATA(0x4A); <- correct
+// LCD_Write_DATA(0x8A); <- was
+// Possible values: 0x8A 0x4A 0x2A 0x1A
 
 // Declare which fonts we will be using
 // and comment out the rest
@@ -117,7 +115,6 @@ int text_colour1 = VGA_WHITE;      // or VGA_SILVER
 int text_colour2 = VGA_SILVER;     // or VGA_GRAY
 int block_fill_colour = VGA_GRAY;  // or VGA_BLACK
 int startup_time = 10000;
-
 
 
 // Voltage calculations
@@ -195,7 +192,8 @@ float Odometer_Temp;  // in meters
 int dist_x = 260, dist_y = 240;
 int odo_x = 20, odo_y = 240;
 uint32_t OdometerTotal, OdometerVerify, Odometer1, Odometer2, Check_1, Check_2;  // Odo values read and writen to eeprom in km
-//int Odo1_error, Odo2_error, Chk1_error, Chk2_error;                              // flags for correct fifo operation
+bool Odo1_error, Odo2_error, Chk1_error, Chk2_error;                             // flags for correct fifo operation
+uint32_t Odo1_Debug, Odo2_Debug, Chk1_Debug, Chk2_Debug;                         // used for verifying writes
 
 // Meter variables
 int blocks, new_val, num_segs, seg_size, x1, x2, block_colour;
@@ -247,7 +245,6 @@ void setup() {
   pinMode(Power_Good_Pin, INPUT);
 
 
-
   // =======================================================
   // Calculate the distance travelled per VSS pulse
   // based on tyre size, diff ratio and VSS pulses per tailshaft revolution, in millimeters
@@ -280,111 +277,111 @@ void setup() {
 
   // Start the wear-leveling classes for EEPROM
   // this also initiates .fastFormat() on first use or no valid values
-  // 101428km = the default minimum odometer value, just because
-  // maximum 32bit unsigned integer = 4294967295 - 101428 = 4294865867
+  // 999999 - 101428 = 898571
   Odo1_EEPROM.begin();
+  //Odo1_EEPROM.fastFormat();
   Odo2_EEPROM.begin();
+  //Odo2_EEPROM.fastFormat();
   Chk1_EEPROM.begin();
+  //Chk1_EEPROM.fastFormat();
   Chk2_EEPROM.begin();
+  //Chk2_EEPROM.fastFormat();
 
   // Try to read saved values
-  Odo1_EEPROM.get(Odometer1);
-  Odo2_EEPROM.get(Odometer2);
-  Chk1_EEPROM.get(Check_1);
-  Chk2_EEPROM.get(Check_2);
+  if (!Odo1_EEPROM.get(Odometer1)) {
+    // read error
+    Odometer1 = 101428;
+    Odo1_error = true;
+    myGLCD.setColor(VGA_YELLOW);
+    myGLCD.print((char *)"OD1 bad    ", LEFT, 100);
+  } else {
+    if (Debug_Mode) {
+      myGLCD.setColor(VGA_GREEN);
+      myGLCD.print((char *)"OD1 good   ", LEFT, 100);
+    }
+  }
+
+  if (!Odo2_EEPROM.get(Odometer2)) {
+    // read error
+    Odometer2 = 101428;
+    Odo2_error = true;
+    myGLCD.setColor(VGA_YELLOW);
+    myGLCD.print((char *)"OD2 bad    ", LEFT, 120);
+  } else {
+    if (Debug_Mode) {
+      myGLCD.setColor(VGA_GREEN);
+      myGLCD.print((char *)"OD2 good   ", LEFT, 120);
+    }
+  }
+
+  if (!Chk1_EEPROM.get(Check_1)) {
+    // read error
+    Check_1 = 999999 - 101428;
+    Chk1_error = true;
+    myGLCD.setColor(VGA_YELLOW);
+    myGLCD.print((char *)"Ck1 bad    ", LEFT, 140);
+  } else {
+    if (Debug_Mode) {
+      myGLCD.setColor(VGA_GREEN);
+      myGLCD.print((char *)"Ck1 good   ", LEFT, 140);
+    }
+  }
+
+  if (!Chk2_EEPROM.get(Check_2)) {
+    // read error
+    Check_2 = 999999 - 101428;
+    Chk2_error = true;
+    myGLCD.setColor(VGA_YELLOW);
+    myGLCD.print((char *)"Ck2 bad    ", LEFT, 160);
+  } else {
+    if (Debug_Mode) {
+      myGLCD.setColor(VGA_GREEN);
+      myGLCD.print((char *)"Ck2 good   ", LEFT, 160);
+    }
+  }
+
+  if (!Odo1_error && !Odo2_error && !Chk1_error && !Chk2_error) {
+    // All good to go
+    myGLCD.setColor(VGA_GREEN);
+    myGLCD.print((char *)"Odo all good", CENTER, 140);
+  }
 
   // Consistency checks
   // At least one of the values was within a valid range
-  if (Odometer1 == Odometer2 && Check_1 == Check_2 && Odometer1 + Check_1 == 0 && Odometer1 >= 101428) {
-    // All good to go
-    myGLCD.setColor(VGA_GREEN);
-    myGLCD.print((char *)" ALL EEPROM GOOD ", CENTER, 150);
+
+  // Set default values or best guess
+
+  // Catch All
+  OdometerTotal = max(Odometer1, 101428);
+  OdometerTotal = max(OdometerTotal, Odometer2);
+  OdometerVerify = min(Check_1, 898571);
+  OdometerVerify = min(OdometerVerify, Check_2);
+
+  if (OdometerVerify <= 898571 && OdometerVerify + OdometerTotal < 999999) {
+    // OdometerVerify might be OK so calc a new OdometerTotal
+    OdometerTotal = 999999 - OdometerVerify;
   } else {
-    // Something might still be usable
-    if (Odometer1 >= 101428 || Odometer2 >= 101428 || Check_1 <= 4294865867 || Check_2 <= 4294865867) {
+    // OdometerTotal might be OK so calc a new OdometerVerify
+    OdometerVerify = 999999 - OdometerTotal;
+  }
 
-      if (Odometer1 == Odometer2 && Check_1 != Check_2) {
-        if (Odometer1 + Check_1 == 0) {
-          //Check2 is wrong
-          Check_2 = Check_1;
-          myGLCD.setColor(VGA_YELLOW);
-          myGLCD.print((char *)"    Chk_2 bad    ", CENTER, 200);
-        }
-        //Check1 is wrong
-        else {
-          Check_1 = Check_2;
-          myGLCD.setColor(VGA_YELLOW);
-          myGLCD.print((char *)"    Chk_1 bad    ", CENTER, 100);
-        }
-      }
+  Odometer1 = OdometerTotal;
+  Odometer2 = OdometerTotal;
+  Check_1 = OdometerVerify;
+  Check_2 = OdometerVerify;
 
-      if (Odometer1 != Odometer2 && Check_1 == Check_2) {
-        if (Odometer1 + Check_1 == 0) {
-          //Odo2 is wrong
-          Odometer2 = Odometer1;
-          myGLCD.setColor(VGA_YELLOW);
-          myGLCD.print((char *)"    ODO_2 bad    ", CENTER, 200);
-        }
-        //Odo1 is wrong
-        else {
-          Odometer1 = Odometer2;
-          myGLCD.setColor(VGA_YELLOW);
-          myGLCD.print((char *)"    ODO_1 bad    ", CENTER, 100);
-        }
-      }
-
-      if (Odometer1 != Odometer2 && Check_1 != Check_2) {
-        if (Odometer1 > Odometer2 || Check_2 < Check_1) {
-          if (Odometer1 + Check_2 == 0) {
-            // Odo2 and Check1 are wrong
-            Odometer2 = Odometer1;
-            Check_1 = Check_2;
-            myGLCD.setColor(VGA_YELLOW);
-            myGLCD.print((char *)" Chk_1 ODO_2 bad ", CENTER, 200);
-          } else if (Odometer2 + Check_1 == 0) {
-            // Odo1 and Check2 are wrong
-            Odometer1 = Odometer2;
-            Check_2 = Check_1;
-            myGLCD.setColor(VGA_YELLOW);
-            myGLCD.print((char *)" Chk_2 ODO_1 bad ", CENTER, 100);
-          }
-        }
-      }
-
-    } else {
-      // Nothing was within range
-      myGLCD.setColor(VGA_RED);
-      myGLCD.print((char *)" ALL EEPROM BAD  ", CENTER, 150);
-    }
-
-    // Catch All
-    // Set default values or best guess
-    OdometerTotal = max(101428, Odometer1);
-    OdometerTotal = max(Odometer1, Odometer2);
-    OdometerVerify = min(4294865867, Check_1);
-    OdometerVerify = min(Check_1, Check_2);
-    if (OdometerVerify - OdometerTotal > 0) {
-      OdometerTotal = 0 - OdometerVerify;
-    } else {
-      OdometerVerify = 0 - OdometerTotal;
-    }
-
-    Odometer1 = Odometer2 = OdometerTotal;
-    Check_1 = Check_2 = OdometerVerify;
-
-    // Try to write the updated valid values
-    if (power_good()) {
-      Odo1_EEPROM.put(Odometer1);
-      Odo2_EEPROM.put(Odometer2);
-      Chk1_EEPROM.put(Check_1);
-      Chk2_EEPROM.put(Check_2);
-    }
-
-  }  // end of "else" for everything was good
-  // So we didnt need to write any repaired values to EEPROM
+  // Try to write the updated valid values
+  if (power_good()) {
+    Odo1_EEPROM.put(Odometer1);
+    Odo2_EEPROM.put(Odometer2);
+    Chk1_EEPROM.put(Check_1);
+    Chk2_EEPROM.put(Check_2);
+  }
+  if (Debug_Mode) Verify_Write();
 
   // Leave the important messages onscreen for a few seconds
-  delay(4000);
+  delay(2000);
+  if (Debug_Mode) delay(2000);
 
   // Clear the screen and display static items
   myGLCD.clrScr();
@@ -410,8 +407,8 @@ void setup() {
     Demo_Mode = false;  // cant have both demo mode and calibration mode at once
     myGLCD.printNumF(distance_per_VSS_pulse, 2, 0, 265, '.', 6, ' ');
     myGLCD.printNumF(pulses_per_km, 2, 0, 285, '.', 6, ' ');
-  } else  // Display the stored Odometer value
-  {
+  } else {
+    // Display the stored Odometer value
     myGLCD.setColor(text_colour2);
     myGLCD.setFont(font7F);
     myGLCD.printNumI(OdometerTotal, odo_x, odo_y, 6, ' ');
@@ -606,23 +603,33 @@ void loop() {
 
     // Write OdometerTotal to Odometer1 and Odometer2
     // and save to EEPROM only if Power is good
-    Odometer1 = Odometer2 = OdometerTotal;
+    Odometer1 = OdometerTotal;
+    Odometer2 = OdometerTotal;
     if (power_good()) {
       Odo1_EEPROM.put(Odometer1);
       Odo2_EEPROM.put(Odometer2);
     }
 
     // Calculate and set the Check values
-    OdometerVerify = 0 - OdometerTotal;
-    Check_1 = Check_2 = OdometerVerify;
+    OdometerVerify = 999999 - OdometerTotal;
+    Check_1 = OdometerVerify;
+    Check_2 = OdometerVerify;
     if (power_good()) {
       Chk1_EEPROM.put(Check_1);
       Chk2_EEPROM.put(Check_2);
     }
-  }
-  // Odometertemp has reached a 1000m or more and been added to total
-  // reset it and start counting again for the next 1km
-  Odometer_Temp = 0;
+
+    // Dont worry about re-reading the values to check if they wrote OK
+    // If any fail hopefully 50% or more are OK
+    // and next power-up can detect and fix errors
+
+    if (Debug_Mode) Verify_Write();
+
+    // Odometertemp has reached a 1000m or more and been added to total
+    // reset it and start counting again for the next 1km
+    Odometer_Temp = 0;
+
+  }  // end if update odometer +1000m
 
 
   // =======================================================
@@ -728,6 +735,60 @@ unsigned int rainbow(byte value) {
   }
   return (red << 11) + (green << 5) + blue;
 }
+
+
+// ##################################################################################################################################################
+
+
+void Verify_Write() {
+
+
+  //Odo1_Debug, Odo2_Debug, Chk1_Debug, Chk2_Debug
+
+  myGLCD.setBackColor(VGA_BLACK);
+  myGLCD.setFont(font0);
+
+  Odo1_EEPROM.get(Odo1_Debug);
+  Odo2_EEPROM.get(Odo2_Debug);
+  Chk1_EEPROM.get(Chk1_Debug);
+  Chk2_EEPROM.get(Chk2_Debug);
+
+  if (Odo1_Debug != Odometer1) {
+    myGLCD.setColor(VGA_YELLOW);
+  } else {
+    myGLCD.setColor(VGA_GREEN);
+  }
+  myGLCD.print((char *)"OD1 ", LEFT, 100);
+
+  if (Odo2_Debug != Odometer2) {
+    myGLCD.setColor(VGA_YELLOW);
+  } else {
+    myGLCD.setColor(VGA_GREEN);
+  }
+  myGLCD.print((char *)"OD2 ", LEFT, 120);
+
+  if (Chk1_Debug != Check_1) {
+    myGLCD.setColor(VGA_YELLOW);
+  } else {
+    myGLCD.setColor(VGA_GREEN);
+  }
+  myGLCD.print((char *)"Ck1 ", LEFT, 140);
+
+  if (Chk2_Debug != Check_2) {
+    myGLCD.setColor(VGA_YELLOW);
+  } else {
+    myGLCD.setColor(VGA_GREEN);
+  }
+  myGLCD.print((char *)"Ck2 ", LEFT, 160);
+
+  // These should all produce zero
+  myGLCD.setColor(VGA_GRAY);
+  myGLCD.printNumI((999999 - Chk1_Debug - Odo1_Debug), LEFT, 180, 3, ' ');
+  myGLCD.printNumI((999999 - Chk2_Debug - Odo2_Debug), LEFT, 200, 3, ' ');
+  myGLCD.printNumI((Odo1_Debug - Odo2_Debug), LEFT, 220, 3, ' ');
+
+
+}  //  end void Verify_Write()
 
 
 // ##################################################################################################################################################

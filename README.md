@@ -29,6 +29,15 @@ This is the ILI9481 display used
 
 https://www.altronics.com.au/p/z6527a-3.5-lcd-tft-arduino-mega2560-shield/
 
+For this ILI9481 display I needed to modify the driver in UTFT to flip the display
+```
+// flip
+	LCD_Write_COM(0x36);
+	LCD_Write_DATA(0x4A); <- correct and working
+	// LCD_Write_DATA(0x8A); <- usually this should be used
+	// 0x8A 0x4A 0x2A 0x1A
+```
+
 
 ### It is required to check and adjust
 
