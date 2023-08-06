@@ -74,7 +74,7 @@ Pressing the button at startup also enters calibration mode.
 Pressing the button during normal operation resets the trip meter value.
 Currently there is only a crude long-press detection using delay, and some debouncing in hardware is assumed.
 
-The sounds are offloaded to a Leonardo Tiny to avoid delays and allow one Tiny and speaker to srvice multiple other functions such as Speedo and Fuel/Temperature/OilPressure gauge warning sounds.
+The sounds are offloaded to a Leonardo Tiny to avoid delays and allow one Tiny and speaker to service multiple other warning sounds.
 
 The dimming function works by changing to using light grey and dark grey instead of white and colours, since there is no backlight control on the LCD panel I used.
 
