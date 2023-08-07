@@ -409,7 +409,7 @@ void setup() {
   }
 
 
-  if (Calibration_Mode == true) {
+  if (Calibration_Mode) {
     Demo_Mode = false;  // cant have both demo mode and calibration mode at once
     myGLCD.printNumF(distance_per_VSS_pulse, 2, 0, 265, '.', 6, ' ');
     myGLCD.printNumF(pulses_per_km, 2, 0, 285, '.', 6, ' ');
@@ -464,7 +464,7 @@ void loop() {
 
   if (millis() > startup_time) {
     // Dim mode when headlights are on
-    if (digitalRead(Low_Beam_Pin) == HIGH && dim_mode == false) {
+    if (digitalRead(Low_Beam_Pin) == HIGH && !dim_mode) {
       dim_mode = true;
       text_colour1 = VGA_SILVER;
       text_colour2 = VGA_GRAY;
@@ -472,7 +472,7 @@ void loop() {
     }
 
     // Normal colours when headlights are off
-    if (digitalRead(Low_Beam_Pin) == LOW && dim_mode == true) {
+    if (digitalRead(Low_Beam_Pin) == LOW && dim_mode) {
       dim_mode = false;
       text_colour1 = VGA_WHITE;
       text_colour2 = VGA_SILVER;
@@ -509,7 +509,7 @@ void loop() {
   // Input from the vehicle speed sensor
   // =======================================================
 
-  if (Demo_Mode == false) {
+  if (!Demo_Mode) {
     // Read the real sensor
     hightime = pulseIn(VSS_Input_Pin, HIGH, pulsein_timeout);
     lowtime = pulseIn(VSS_Input_Pin, LOW, pulsein_timeout);
@@ -524,7 +524,7 @@ void loop() {
 
     vss = 3600.0 * freq / pulses_per_km * kludge_factor;
 
-    if (Calibration_Mode == true) {
+    if (Calibration_Mode) {
       myGLCD.setColor(VGA_GRAY);
       myGLCD.setBackColor(VGA_BLACK);
       myGLCD.setFont(font0);
@@ -661,7 +661,7 @@ void loop() {
     x2 = linearBarX + ((blocks + 1) * seg_size) - seg_gap;  // ending X coord allowing for gap
 
     if (new_val > 0 && blocks < new_val) {
-      if (dim_mode == false) {
+      if (!dim_mode) {
         // Choose colour from scheme using the Rainbow function
         // uncomment one line
         //block_colour = VGA_RED; // Fixed colour
