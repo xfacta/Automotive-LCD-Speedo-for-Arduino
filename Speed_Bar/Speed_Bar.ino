@@ -8,10 +8,8 @@
 // Uses pulseIn , no interupts
 // Odometer saved to EEPROM wear leveling circular buffer
 // with EEPROM write denied during power-down
-// Improved EEPROM checks
+// Added CRC and improved EEPROM checks
 // Offloaded sounds to external Leonardo Tiny
-
-
 
 // UTFT Libraries
 // Copyright (C)2015 Rinky-Dink Electronics, Henning Karlsen. All right reserved
@@ -56,16 +54,20 @@ bool Debug_Mode = false;
 
 
 
+// Library for the CRC calcs
+#include "Fletcher.h"
+
+
 // Using the EEWL EEPROM wear level library to spread data over the EEPROM
 #include <eewl.h>
 // pulls in <EEPROM.h> too
 // setting 100 blocks = 100*5 bytes = 500 bytes, approx 500*100000 writes
 // Changing these values will cause the EEPROM variables to be cleared
-#define BUFFER_LEN 100      // number of data blocks (1 blk = 1 ulong = 4 bytes) + 1 byte overhead
-#define BUFFER_START1 100   // EEPROM address where buffer1/Odo1 starts (UL)
-#define BUFFER_START2 700   // EEPROM address where buffer2/Odo1 starts (UL)
-#define BUFFER_START3 1300  // EEPROM address where buffer3/Check1 starts (int)
-#define BUFFER_START4 1900  // EEPROM address where buffer4/Check2 starts (int)
+#define BUFFER_LEN 0x0080     // 128 = number of data blocks (1 blk = 1 ulong = 4 bytes) + 1 byte overhead = 128 x 5 = 640 bytes
+#define BUFFER_START1 0x0100  // EEPROM address where buffer1/Odo1 starts (UL) = 256
+#define BUFFER_START2 0x0400  // EEPROM address where buffer2/Odo1 starts (UL) = 1024
+#define BUFFER_START3 0x0800  // EEPROM address where buffer3/Check1 starts (int) = 2048
+#define BUFFER_START4 0x0C00  // EEPROM address where buffer4/Check2 starts (int) = 3072
 
 
 // Screen and font stuff
@@ -190,9 +192,11 @@ float avg_vspeed, DistM, DistINTm, DistTotalm, DistKM;
 float Odometer_Temp;  // in meters
 int dist_x = 260, dist_y = 240;
 int odo_x = 20, odo_y = 240;
-uint32_t OdometerTotal, OdometerVerify, Odometer1, Odometer2, Check_1, Check_2;  // Odo values read and writen to eeprom in km
-bool Odo1_error, Odo2_error, Chk1_error, Chk2_error;                             // flags for correct fifo operation
-uint32_t Odo1_Debug, Odo2_Debug, Chk1_Debug, Chk2_Debug;                         // used for verifying writes
+uint32_t Odometer_Total, Odometer_Verify, Odometer1, Odometer2, Odometer3, Odo_CRC;  // Odo values read and writen to eeprom in km
+bool Odo1_Good, Odo2_Good, Odo3_Good, CRC_Good;                                      // flags for correct fifo operation
+uint32_t Odo1_Debug, Odo2_Debug, Odo3_Debug, CRC_Debug;                              // used for verifying writes
+const uint32_t Odometer_Min = 101428;
+const uint32_t Odometer_Max = 999999;
 
 // Meter variables
 int blocks, new_val, num_segs, seg_size, x1, x2, block_colour;
@@ -207,8 +211,8 @@ const int meterMin = 0, meterMax = 200;  // bar scale
 // Start a Class for each Odomoter and Check
 EEWL Odo1_EEPROM(Odometer1, BUFFER_LEN, BUFFER_START1);
 EEWL Odo2_EEPROM(Odometer2, BUFFER_LEN, BUFFER_START2);
-EEWL Chk1_EEPROM(Check_1, BUFFER_LEN, BUFFER_START3);
-EEWL Chk2_EEPROM(Check_2, BUFFER_LEN, BUFFER_START4);
+EEWL Odo3_EEPROM(Odometer3, BUFFER_LEN, BUFFER_START3);
+EEWL CRC_EEPROM(Odo_CRC, BUFFER_LEN, BUFFER_START4);
 
 
 
@@ -276,24 +280,25 @@ void setup() {
 
   // Start the wear-leveling classes for EEPROM
   // this also initiates .fastFormat() on first use or no valid values
-  // 999999 - 101428 = 898571
   Odo1_EEPROM.begin();
   //Odo1_EEPROM.fastFormat();
   Odo2_EEPROM.begin();
   //Odo2_EEPROM.fastFormat();
-  Chk1_EEPROM.begin();
-  //Chk1_EEPROM.fastFormat();
-  Chk2_EEPROM.begin();
-  //Chk2_EEPROM.fastFormat();
+  Odo3_EEPROM.begin();
+  //Odo3_EEPROM.fastFormat();
+  CRC_EEPROM.begin();
+  //CRC_EEPROM.fastFormat();
 
   // Try to read saved values
+  // EEWL returns a bool status if the read is successful or not
   if (!Odo1_EEPROM.get(Odometer1)) {
     // read error
-    Odometer1 = 101428;
-    Odo1_error = true;
+    Odometer1 = Odometer_Min;
+    Odo1_Good = false;
     myGLCD.setColor(VGA_YELLOW);
     myGLCD.print((char *)"OD1 bad    ", LEFT, 100);
   } else {
+    Odo1_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
       myGLCD.print((char *)"OD1 good   ", LEFT, 100);
@@ -302,85 +307,136 @@ void setup() {
 
   if (!Odo2_EEPROM.get(Odometer2)) {
     // read error
-    Odometer2 = 101428;
-    Odo2_error = true;
+    Odometer2 = Odometer_Min;
+    Odo2_Good = false;
     myGLCD.setColor(VGA_YELLOW);
     myGLCD.print((char *)"OD2 bad    ", LEFT, 120);
   } else {
+    Odo2_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
       myGLCD.print((char *)"OD2 good   ", LEFT, 120);
     }
   }
 
-  if (!Chk1_EEPROM.get(Check_1)) {
+  if (!Odo3_EEPROM.get(Odometer3)) {
     // read error
-    Check_1 = 999999 - 101428;
-    Chk1_error = true;
+    Odometer3 = Odometer_Min;
+    Odo3_Good = false;
     myGLCD.setColor(VGA_YELLOW);
-    myGLCD.print((char *)"Ck1 bad    ", LEFT, 140);
+    myGLCD.print((char *)"OD3 bad    ", LEFT, 140);
   } else {
+    Odo3_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
-      myGLCD.print((char *)"Ck1 good   ", LEFT, 140);
+      myGLCD.print((char *)"OD3 good   ", LEFT, 140);
     }
   }
 
-  if (!Chk2_EEPROM.get(Check_2)) {
+  if (!CRC_EEPROM.get(Odo_CRC)) {
     // read error
-    Check_2 = 999999 - 101428;
-    Chk2_error = true;
+    Odo_CRC = 0xFFFFFFFF;
+    CRC_Good = false;
     myGLCD.setColor(VGA_YELLOW);
-    myGLCD.print((char *)"Ck2 bad    ", LEFT, 160);
+    myGLCD.print((char *)"CRC bad    ", LEFT, 160);
   } else {
+    CRC_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
-      myGLCD.print((char *)"Ck2 good   ", LEFT, 160);
+      myGLCD.print((char *)"CRC good   ", LEFT, 160);
     }
   }
 
-  if (!Odo1_error && !Odo2_error && !Chk1_error && !Chk2_error) {
+  if (Odo1_Good && Odo2_Good && Odo3_Good && CRC_Good) {
     // All good to go
     myGLCD.setColor(VGA_GREEN);
-    myGLCD.print((char *)"Odo all good", CENTER, 140);
+    myGLCD.print((char *)"Odometer good", CENTER, 140);
   }
 
   // Consistency checks
-  // At least one of the values was within a valid range
+  // Compare the CRC to other Odo values
+  if (CRC_Good) {
+    // Odo1 matches the CRC
+    if (Odo_CRC == fletcher64((uint32_t *)Odometer1, 1)) {
+      Odometer_Total = Odometer1;
+      Odometer2 = Odometer1;
+      Odometer3 = Odometer1;
+    }
+    // Odo2 matches the CRC
+    if (Odo_CRC == fletcher64((uint32_t *)Odometer2, 1)) {
+      Odometer_Total = Odometer2;
+      Odometer1 = Odometer2;
+      Odometer3 = Odometer2;
+    }
+    // Odo3 matches the CRC
+    if (Odo_CRC == fletcher64((uint32_t *)Odometer3, 1)) {
+      Odometer_Total = Odometer3;
+      Odometer1 = Odometer3;
+      Odometer2 = Odometer3;
+    }
+  }
 
-  // Set default values or best guess
+  // CRC was bad or didnt match any of the Odo values
+  // Try to find two matching Odo values
+
+  // Odo1 and Odo2 agree
+  // fix Odo3
+  if (Odometer1 == Odometer2 && Odometer1 != Odometer3) {
+    Odometer3 = Odometer1;
+    Odometer_Total = Odometer1;
+  }
+  // Odo2 and Odo3 agree
+  // fix Odo1
+  else if (Odometer2 == Odometer3 && Odometer2 != Odometer1) {
+    Odometer1 = Odometer2;
+    Odometer_Total = Odometer2;
+  }
+  // Odo3 and Odo1 agree
+  // fix Odo2
+  else if (Odometer3 == Odometer1 && Odometer3 != Odometer2) {
+    Odometer2 = Odometer3;
+    Odometer_Total = Odometer3;
+  }
 
   // Catch All
-  OdometerTotal = max(Odometer1, 101428);
-  OdometerTotal = max(OdometerTotal, Odometer2);
-  OdometerVerify = min(Check_1, 898571);
-  OdometerVerify = min(OdometerVerify, Check_2);
+  // maybe all Odo1 Odo2 and Odo3 disagreed
+  // choose the highest Odo value that is within range
 
-  if (OdometerVerify <= 898571 && OdometerVerify + OdometerTotal < 999999) {
-    // OdometerVerify might be OK so calc a new OdometerTotal
-    OdometerTotal = 999999 - OdometerVerify;
-  } else {
-    // OdometerTotal might be OK so calc a new OdometerVerify
-    OdometerVerify = 999999 - OdometerTotal;
-  }
+  // Odo1 is the highest reasonable value
+  if (Odometer1 > Odometer_Min && Odometer1 < Odometer_Max && Odometer1 > Odometer2 && Odometer1 > Odometer3) {
+    Odometer_Total = Odometer1;
+  } else Odometer1 = Odometer_Min;
+  // Odo2 is the highest reasonable value
+  if (Odometer2 > Odometer_Min && Odometer2 < Odometer_Max && Odometer2 > Odometer1 && Odometer2 > Odometer3) {
+    Odometer_Total = Odometer2;
+  } else Odometer2 = Odometer_Min;
+  // Odo3 is the highest reasonable value
+  if (Odometer3 > Odometer_Min && Odometer3 < Odometer_Max && Odometer3 > Odometer1 && Odometer3 > Odometer2) {
+    Odometer_Total = Odometer3;
+  } else Odometer3 = Odometer_Min;
 
-  Odometer1 = OdometerTotal;
-  Odometer2 = OdometerTotal;
-  Check_1 = OdometerVerify;
-  Check_2 = OdometerVerify;
+  // And just in case someting was still missed
+  Odometer_Total = max(max(Odometer1, Odometer2), Odometer3);
+  if (Odometer_Total >= Odometer_Max) Odometer_Total = Odometer_Min;
 
-  // Try to write the updated valid values
+  // Recacl the CRC in case it wasnt correct for the updated Odovalue
+  Odometer_Verify = fletcher64((uint32_t *)Odometer_Total, 1);
+
+  // Try to write the updated valid values back into EEPROM
   if (power_good()) {
-    Odo1_EEPROM.put(Odometer1);
-    Odo2_EEPROM.put(Odometer2);
-    Chk1_EEPROM.put(Check_1);
-    Chk2_EEPROM.put(Check_2);
+    Odo1_EEPROM.put(Odometer_Total);
+    Odo2_EEPROM.put(Odometer_Total);
+    Odo3_EEPROM.put(Odometer_Total);
+    CRC_EEPROM.put(Odometer_Verify);
   }
-  if (Debug_Mode) Verify_Write();
+  if (Debug_Mode) {
+    Verify_Write();
+    delay(2000);
+  }
 
   // Leave the important messages onscreen for a few seconds
   delay(2000);
-  if (Debug_Mode) delay(2000);
+
 
   // Clear the screen and display static items
   myGLCD.clrScr();
@@ -417,7 +473,7 @@ void setup() {
     // Display the stored Odometer value
     myGLCD.setColor(text_colour2);
     myGLCD.setFont(font7F);
-    myGLCD.printNumI(OdometerTotal, odo_x, odo_y, 6, ' ');
+    myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
   }
 
 
@@ -587,28 +643,21 @@ void loop() {
   // If 1 km or more has been accumulated write it
   // to the permenant odo and reset the temporary value
   if (Odometer_Temp >= 1000) {
-    OdometerTotal += round(Odometer_Temp / 1000.0);
+    Odometer_Total += round(Odometer_Temp / 1000.0);
 
     // Display the new Odo total since the value has just updated
-    myGLCD.printNumI(OdometerTotal, odo_x, odo_y, 6, ' ');
+    myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
 
-    // Write OdometerTotal to Odometer1 and Odometer2
-    // and save to EEPROM only if Power is good
-    Odometer1 = OdometerTotal;
-    Odometer2 = OdometerTotal;
+    // Write Odometer_Total to EEPROM only if Power is good
     if (power_good()) {
-      Odo1_EEPROM.put(Odometer1);
-      Odo2_EEPROM.put(Odometer2);
+      Odo1_EEPROM.put(Odometer_Total);
+      Odo2_EEPROM.put(Odometer_Total);
+      Odo3_EEPROM.put(Odometer_Total);
     }
 
-    // Calculate and set the Check values
-    OdometerVerify = 999999 - OdometerTotal;
-    Check_1 = OdometerVerify;
-    Check_2 = OdometerVerify;
-    if (power_good()) {
-      Chk1_EEPROM.put(Check_1);
-      Chk2_EEPROM.put(Check_2);
-    }
+    // Calculate and set the CRC value
+    Odometer_Verify = fletcher64((uint32_t *)Odometer_Total, 1);
+    if (power_good()) CRC_EEPROM.put(Odometer_Verify);
 
     // Dont worry about re-reading the values to check if they wrote OK
     // If any fail hopefully 50% or more are OK
@@ -701,18 +750,17 @@ void loop() {
 // =======================================================
 
 
-// =======================================================
 
+// Set the power good status
 bool power_good() {
   return ((analogRead(Power_Good_Pin) * int(Input_Multiplier)) >= Safe_Voltage);
 }
 
-// =======================================================
 
 // =======================================================
+
 
 // Function to return a 16 bit rainbow colour
-
 unsigned int rainbow(byte value) {
   // Value is expected to be in range 0-127
   // The value is converted to a spectrum colour from 0 = blue through to 127 = red
@@ -746,7 +794,6 @@ unsigned int rainbow(byte value) {
   return (red << 11) + (green << 5) + blue;
 }
 
-// =======================================================
 
 
 // ##################################################################################################################################################
@@ -756,49 +803,49 @@ unsigned int rainbow(byte value) {
 void Verify_Write() {
 
 
-  //Odo1_Debug, Odo2_Debug, Chk1_Debug, Chk2_Debug
+  //Odo1_Debug, Odo2_Debug, Odo3_Debug, CRC_Debug
 
   myGLCD.setBackColor(VGA_BLACK);
   myGLCD.setFont(font0);
 
   Odo1_EEPROM.get(Odo1_Debug);
   Odo2_EEPROM.get(Odo2_Debug);
-  Chk1_EEPROM.get(Chk1_Debug);
-  Chk2_EEPROM.get(Chk2_Debug);
+  Odo3_EEPROM.get(Odo3_Debug);
+  CRC_EEPROM.get(CRC_Debug);
 
-  if (Odo1_Debug != Odometer1) {
+  if (Odo1_Debug != Odometer_Total) {
     myGLCD.setColor(VGA_YELLOW);
   } else {
     myGLCD.setColor(VGA_GREEN);
   }
   myGLCD.print((char *)"OD1 ", LEFT, 100);
 
-  if (Odo2_Debug != Odometer2) {
+  if (Odo2_Debug != Odometer_Total) {
     myGLCD.setColor(VGA_YELLOW);
   } else {
     myGLCD.setColor(VGA_GREEN);
   }
   myGLCD.print((char *)"OD2 ", LEFT, 120);
 
-  if (Chk1_Debug != Check_1) {
+  if (Odo3_Debug != Odometer_Total) {
     myGLCD.setColor(VGA_YELLOW);
   } else {
     myGLCD.setColor(VGA_GREEN);
   }
-  myGLCD.print((char *)"Ck1 ", LEFT, 140);
+  myGLCD.print((char *)"OD3 ", LEFT, 140);
 
-  if (Chk2_Debug != Check_2) {
+  if (CRC_Debug != Odometer_Verify) {
     myGLCD.setColor(VGA_YELLOW);
   } else {
     myGLCD.setColor(VGA_GREEN);
   }
-  myGLCD.print((char *)"Ck2 ", LEFT, 160);
+  myGLCD.print((char *)"CRC ", LEFT, 160);
 
   // These should all produce zero
   myGLCD.setColor(VGA_GRAY);
-  myGLCD.printNumI((999999 - Chk1_Debug - Odo1_Debug), LEFT, 180, 3, ' ');
-  myGLCD.printNumI((999999 - Chk2_Debug - Odo2_Debug), LEFT, 200, 3, ' ');
-  myGLCD.printNumI((Odo1_Debug - Odo2_Debug), LEFT, 220, 3, ' ');
+  myGLCD.printNumI((Odometer_Total - Odo1_Debug), LEFT, 180, 3, ' ');
+  myGLCD.printNumI((Odo2_Debug - Odo3_Debug), LEFT, 200, 3, ' ');
+  myGLCD.printNumI((Odometer_Verify - CRC_Debug), LEFT, 220, 3, ' ');
 
 
 }  //  end void Verify_Write()
