@@ -419,7 +419,7 @@ void setup() {
   Odometer_Total = max(max(Odometer1, Odometer2), Odometer3);
   if (Odometer_Total >= Odometer_Max) Odometer_Total = Odometer_Min;
 
-  // Recacl the CRC in case it wasnt correct for the updated Odovalue
+  // Recalc the CRC in case it wasnt correct for the updated Odovalue
   Odometer_Verify = fletcher64((uint32_t *)Odometer_Total, 1);
 
   // Try to write the updated valid values back into EEPROM
