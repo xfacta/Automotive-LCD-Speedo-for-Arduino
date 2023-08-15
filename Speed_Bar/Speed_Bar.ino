@@ -49,7 +49,7 @@ const float Safe_Voltage = 0.0;  // set to 11.0 for real usage
 
 bool Calibration_Mode = false;
 bool Demo_Mode = true;
-bool Debug_Mode = true;
+bool Debug_Mode = false;
 
 //========================================================================
 
