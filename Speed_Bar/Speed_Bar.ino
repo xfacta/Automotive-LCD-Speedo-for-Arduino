@@ -9,6 +9,7 @@
 // Odometer saved to EEPROM wear leveling circular buffer
 // with EEPROM write denied during power-down
 // Added CRC and improved EEPROM checks
+// Changed CRC/Fletcher to bitwise NOT
 // Offloaded sounds to external Leonardo Tiny
 
 // UTFT Libraries
@@ -48,14 +49,10 @@ const float Safe_Voltage = 0.0;  // set to 11.0 for real usage
 
 bool Calibration_Mode = false;
 bool Demo_Mode = true;
-bool Debug_Mode = false;
+bool Debug_Mode = true;
 
 //========================================================================
 
-
-
-// Library for the CRC calcs
-#include "Fletcher.h"
 
 
 // Using the EEWL EEPROM wear level library to spread data over the EEPROM
@@ -335,7 +332,7 @@ void setup() {
 
   if (!CRC_EEPROM.get(Odo_CRC)) {
     // read error
-    Odo_CRC = 0xFFFFFFFF;
+    Odo_CRC = 0;
     CRC_Good = false;
     myGLCD.setColor(VGA_YELLOW);
     myGLCD.print((char *)"CRC bad    ", LEFT, 160);
@@ -357,22 +354,29 @@ void setup() {
   // Compare the CRC to other Odo values
   if (CRC_Good) {
     // Odo1 matches the CRC
-    if (Odo_CRC == fletcher64((uint32_t *)Odometer1, 1)) {
+    if (Odo_CRC == ~Odometer1) {
       Odometer_Total = Odometer1;
       Odometer2 = Odometer1;
       Odometer3 = Odometer1;
     }
     // Odo2 matches the CRC
-    if (Odo_CRC == fletcher64((uint32_t *)Odometer2, 1)) {
+    if (Odo_CRC == ~Odometer2) {
       Odometer_Total = Odometer2;
       Odometer1 = Odometer2;
       Odometer3 = Odometer2;
     }
     // Odo3 matches the CRC
-    if (Odo_CRC == fletcher64((uint32_t *)Odometer3, 1)) {
+    if (Odo_CRC == ~Odometer3) {
       Odometer_Total = Odometer3;
       Odometer1 = Odometer3;
       Odometer2 = Odometer3;
+    }
+    // nothing agrees except CRC was good
+    if (Odo_CRC != ~Odometer1 && Odo_CRC != ~Odometer2 && Odo_CRC != ~Odometer2 && Odometer1 != Odometer2 && Odometer1 != Odometer3 && Odometer2 != Odometer3) {
+      Odometer_Total = ~Odo_CRC;
+      Odometer1 = Odometer_Total;
+      Odometer2 = Odometer_Total;
+      Odometer3 = Odometer_Total;
     }
   }
 
@@ -420,7 +424,7 @@ void setup() {
   if (Odometer_Total >= Odometer_Max) Odometer_Total = Odometer_Min;
 
   // Recalc the CRC in case it wasnt correct for the updated Odovalue
-  Odometer_Verify = fletcher64((uint32_t *)Odometer_Total, 1);
+  Odometer_Verify = ~Odometer_Total;
 
   // Try to write the updated valid values back into EEPROM
   if (power_good()) {
@@ -656,7 +660,7 @@ void loop() {
     }
 
     // Calculate and set the CRC value
-    Odometer_Verify = fletcher64((uint32_t *)Odometer_Total, 1);
+    Odometer_Verify = ~Odometer_Total;
     if (power_good()) CRC_EEPROM.put(Odometer_Verify);
 
     // Dont worry about re-reading the values to check if they wrote OK
@@ -843,9 +847,9 @@ void Verify_Write() {
 
   // These should all produce zero
   myGLCD.setColor(VGA_GRAY);
-  myGLCD.printNumI((Odometer_Total - Odo1_Debug), LEFT, 180, 3, ' ');
-  myGLCD.printNumI((Odo2_Debug - Odo3_Debug), LEFT, 200, 3, ' ');
-  myGLCD.printNumI((Odometer_Verify - CRC_Debug), LEFT, 220, 3, ' ');
+  myGLCD.printNumI((Odometer_Total), LEFT, 180, 3, ' ');
+  myGLCD.printNumI((Odo2_Debug - Odo3_Debug + Odo1_Debug), LEFT, 200, 3, ' ');
+  myGLCD.printNumI((~Odometer_Verify), LEFT, 220, 3, ' ');
 
 
 }  //  end void Verify_Write()
