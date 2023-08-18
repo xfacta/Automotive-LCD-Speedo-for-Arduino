@@ -18,7 +18,7 @@
 
 
 
-const auto Version = "Speed Bar V16";
+#define Version "Speed Bar V16"
 
 
 
@@ -33,7 +33,8 @@ int Speed_Marker_1 = 39;  // set 1st speed marker on bar graph
 int Speed_Marker_2 = 58;  // set 2nd speed marker on bar graph
 int Speed_Marker_3 = 97;  // set 3rd speed marker on bar graph
 
-float kludge_factor = 0.996;  // manual scalling of km/hr if needed
+// Kludge Factor is applied to the Frequency
+float kludge_factor = 1.00;  // manual scalling of km/hr if needed
 
 const float vcc_ref = 4.92;  // measure the 5 volts DC and set it here
 const float R1 = 1200.0;     // measure and set the voltage divider values
@@ -137,34 +138,34 @@ const float Input_Multiplier = vcc_ref / 1024.0 / (R2 / (R1 + R2));
 
 
 // Common pin definitions
-const int SD_Select = 53;
+#define SD_Select 53
 
 
 // Pin definitions for digital inputs
-//const int Oil_Press_Pin = 0;              // Oil pressure digital input pin
-//const int Parker_Light_Pin = 1;           // Parker lights digital input pin
-const int Low_Beam_Pin = 2;  // Low beam digital input pin
-//const int High_Beam_Pin = 3;              // High beam digital input pin
-const int Pbrake_Input_Pin = 4;  // Park brake input pin
-const int VSS_Input_Pin = 5;     // Speed frequency input pin
-//const int RPM_Input_Pin = 6;              // RPM frequency input pin
-//const int RPM_PWM_In_Pin = 6;             // Input PWM signal representing RPM
-const int Button_Pin = 7;  // Button momentary input
+#define Oil_Press_Pin 0     // Oil pressure digital input pin
+#define Parker_Light_Pin 1  // Parker lights digital input pin
+#define Low_Beam_Pin 2      // Low beam digital input pin
+#define High_Beam_Pin 3     // High beam digital input pin
+#define Pbrake_Input_Pin 4  // Park brake input pin
+#define VSS_Input_Pin 5     // Speed frequency input pin
+#define RPM_Input_Pin 6     // RPM frequency INPUT pin
+#define RPM_PWM_In_Pin 6    // Input PWM signal representing RPM
+#define Button_Pin 7        // Button momentary input
 
 // Pin definitions for analog inputs
-//const int Temp_Pin = A0;                  // Temperature analog input pin - not used with OneWire sensor
-//const int Fuel_Pin = A1;                  // Fuel level analog input pin
-//const int Batt_Volt_Pin = A2;             // Voltage analog input pin
-//const int Alternator_Pin = A3;            // Alternator indicator analog input pin
-//const int Head_Light_Input = A4;          // Headlights via resistor ladder
-const int Power_Good_Pin = A5;  // Power good, deny EEPROM writes when going bad
+#define Temp_Pin A0          // Temperature analog input pin - not used with OneWire sensor
+#define Fuel_Pin A1          // Fuel level analog input pin
+#define Batt_Volt_Pin A2     // Voltage analog input pin
+#define Alternator_Pin A3    // Alternator indicator analog input pin
+#define Head_Light_Input A4  // Headlights via resistor ladder
+#define Power_Good_Pin A5    // Power good, deny EEPROM writes when going bad
 
 // Pin definitions for outputs
-//const int RPM_PWM_Out_Pin = 10;           // Output of RPM as a PWM signal for shift light
-//const int LED_Pin = 10;                   // NeoPixel LED pin
-const int Warning_Pin = 11;  // Link to external Leonardo for general warning sounds
-//const int OP_Warning_Pin = 12;            // Link to external Leonardo for oil pressure warning sound
-//const int Relay_Pin = 13;                 // Relay for fan control
+#define RPM_PWM_Out_Pin 10  // Output of RPM as a PWM signal for shift light
+#define LED_Pin 10          // NeoPixel LED pin
+#define Warning_Pin 11      // Link to external Leonardo for general warning sounds
+#define OP_Warning_Pin 12   // Link to external Leonardo for oil pressure warning sound
+#define Relay_Pin 13        // Relay for fan control
 
 
 // Times of last important events
@@ -272,7 +273,7 @@ void setup() {
   myGLCD.setColor(VGA_GRAY);
   myGLCD.setBackColor(VGA_BLACK);
   myGLCD.setFont(font0);
-  myGLCD.print(Version, CENTER, CENTER);
+  myGLCD.print((char *)Version, CENTER, CENTER);
 
 
   // Start the wear-leveling classes for EEPROM
@@ -577,12 +578,12 @@ void loop() {
 
     // prevent overflows or divide by zero
     if (period > 1000) {
-      freq = 1000000.0 / (float)period;
+      freq = 1000000.0 / (float)period * kludge_factor;
     } else {
       freq = 0;
     }
 
-    vss = 3600.0 * freq / pulses_per_km * kludge_factor;
+    vss = 3600.0 * freq / pulses_per_km;
 
     if (Calibration_Mode) {
       myGLCD.setColor(VGA_GRAY);
