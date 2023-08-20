@@ -24,8 +24,8 @@
 
 //========================== Set These Manually ==========================
 
-float diff_r = 3.90;   // diff ratio
-float tyre_dia = 576;  // tyre diameter in mm
+float diff_r = 3.70;   // diff ratio
+float tyre_dia = 634;  // tyre diameter in mm
 float vss_rev = 4;     // vss pulses per tailshaft revolution
 
 float Min_vspeed = 4;     // set the minimum expected speed
@@ -49,7 +49,7 @@ const float Safe_Voltage = 0.0;  // set to 11.0 for real usage
 //========================== Calibration mode ===========================
 
 bool Calibration_Mode = false;
-bool Demo_Mode = true;
+bool Demo_Mode = false;
 bool Debug_Mode = false;
 
 //========================================================================
@@ -601,9 +601,9 @@ void loop() {
   }
 
   // the reluctor pickup is not accurate below 4km/hr
-  if (vss < Min_vspeed || vss > 220) vss = 0;
-  // round up the vspeed so it doesnt under-read
+    // round up the vspeed so it doesnt under-read
   vspeed = round(vss + 0.5);
+  if (vspeed < Min_vspeed || vspeed > 220) vspeed = 0;
 
 
   // =======================================================
