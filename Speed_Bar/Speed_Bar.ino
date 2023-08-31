@@ -32,6 +32,8 @@ int Speed_Marker_1 = 39;  // set 1st speed marker on bar graph
 int Speed_Marker_2 = 58;  // set 2nd speed marker on bar graph
 int Speed_Marker_3 = 97;  // set 3rd speed marker on bar graph
 
+const bool Digitial_Input_Active = LOW;  // set whether digitial inputs are Low or High for active
+
 // Kludge Factor is applied to the Frequency
 float kludge_factor = 1.00;  // manual scalling of km/hr if needed
 
@@ -237,9 +239,9 @@ void setup() {
 
   // Digital inputs
   pinMode(Button_Pin, INPUT_PULLUP);
-  pinMode(Pbrake_Input_Pin, INPUT);
-  pinMode(Low_Beam_Pin, INPUT);
-  pinMode(VSS_Input_Pin, INPUT);
+  pinMode(Pbrake_Input_Pin, INPUT_PULLUP);
+  pinMode(Low_Beam_Pin, INPUT_PULLUP);
+  pinMode(VSS_Input_Pin, INPUT_PULLUP);
 
   // Analog inputs
   pinMode(Power_Good_Pin, INPUT);
@@ -454,11 +456,11 @@ void setup() {
 
   // Set calibration mode from long-press button input
   // during startup
-  if (digitalRead(Button_Pin) == LOW) {
+  if (digitalRead(Button_Pin) == Digitial_Input_Active) {
     // Allow time for the button pin to settle
     // assumes some electronic/external debounce
     delay(10);
-    while (digitalRead(Button_Pin) == LOW) {
+    while (digitalRead(Button_Pin) == Digitial_Input_Active) {
       // just wait until button released
       myGLCD.setColor(VGA_WHITE);
       myGLCD.setBackColor(VGA_BLACK);
@@ -510,11 +512,11 @@ void loop() {
   // Reset trip meter by button press
   // =======================================================
 
-  if (digitalRead(Button_Pin) == LOW) {
+  if (digitalRead(Button_Pin) == Digitial_Input_Active) {
     // Allow time for the button pin to settle
     // assumes some electronic/external debounce
     delay(10);
-    if (digitalRead(Button_Pin) == LOW) DistTotalm = 0;
+    if (digitalRead(Button_Pin) == Digitial_Input_Active) DistTotalm = 0;
   }
 
 
@@ -524,7 +526,7 @@ void loop() {
 
   if (millis() > startup_time) {
     // Dim mode when headlights are on
-    if (digitalRead(Low_Beam_Pin) == HIGH && !dim_mode) {
+    if (digitalRead(Low_Beam_Pin) == Digitial_Input_Active && !dim_mode) {
       dim_mode = true;
       text_colour1 = VGA_SILVER;
       text_colour2 = VGA_GRAY;
@@ -532,7 +534,7 @@ void loop() {
     }
 
     // Normal colours when headlights are off
-    if (digitalRead(Low_Beam_Pin) == LOW && dim_mode) {
+    if (digitalRead(Low_Beam_Pin) == !Digitial_Input_Active && dim_mode) {
       dim_mode = false;
       text_colour1 = VGA_WHITE;
       text_colour2 = VGA_SILVER;
@@ -545,19 +547,18 @@ void loop() {
   // Audible warning if the vehicle is moving with Park Brake on
   // =======================================================
 
-  if (digitalRead(Pbrake_Input_Pin) == HIGH) {
+  if (digitalRead(Pbrake_Input_Pin) == Digitial_Input_Active) {
     // display a red P when the park brake is on
     myGLCD.setFont(font7F);
     myGLCD.setColor(VGA_BLACK);
     myGLCD.setBackColor(VGA_RED);
     myGLCD.print((char *)"P", PB_x, PB_y);
     myGLCD.setBackColor(VGA_BLACK);
-
     // sound a warning tone if vehicle is moving
     if (vspeed > 0) digitalWrite(Warning_Pin, LOW);
   } else {
     // print a black space over the P
-    if (digitalRead(Warning_Pin) == LOW) digitalWrite(Warning_Pin, HIGH);
+    if (digitalRead(Warning_Pin) == !Digitial_Input_Active) digitalWrite(Warning_Pin, HIGH);
     myGLCD.setFont(font7F);
     myGLCD.setColor(VGA_BLACK);
     myGLCD.setBackColor(VGA_BLACK);
