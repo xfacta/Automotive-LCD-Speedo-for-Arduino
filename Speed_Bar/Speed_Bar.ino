@@ -9,8 +9,12 @@
   with EEPROM write denied during power-down
   Changed to using bitwise NOT as a check and improved odo tests
   Offloaded sounds to external Leonardo Tiny
-  Removed maximum speed
-  Removed gear indicator with requires RPM and extra calcs
+  Improved power-good test
+
+  These features used to exist but removed
+  to speed up display updates
+  - maximum speed
+  - gear indicator with requires RPM and extra calcs
 */
 
 
@@ -52,14 +56,16 @@ const bool Digitial_Input_Active = LOW;
 // this is applied to the Frequency
 float kludge_factor = 1.00;  // manual scalling of km/hr if needed
 
+// Set these to ensure correct voltage readings of analog inputs
 const float vcc_ref = 4.92;  // measure the 5 volts DC and set it here
 const float R1 = 1200.0;     // measure and set the voltage divider values
 const float R2 = 3300.0;     // for accurate voltage measurements
 
 // Power Good safe voltage level
 // used to deny eeprom writes while supply voltage is too low
-// set to about 120 for real usage -> voltage x10
-const int Safe_Voltage = 0;
+// set to about 11 or 12 for normal use
+// set to 0 for demo use or testing
+const float Safe_Voltage = 12.0;
 
 //========================================================================
 
@@ -178,11 +184,10 @@ const float Input_Multiplier = vcc_ref / 1024.0 / (R2 / (R1 + R2));
 #define RPM_PWM_In_Pin 8    // Input PWM signal representing RPM
 
 // Pin definitions for analog inputs
-#define Temp_Pin A0          // Temperature analog input pin - OneWire sensor on pin 14
-#define Fuel_Pin A1          // Fuel level analog input pin
-#define Batt_Volt_Pin A2     // Voltage analog input pin
-#define Alternator_Pin A3    // Alternator indicator analog input pin
-#define Head_Light_Input A4  // Headlights via resistor ladder
+#define Temp_Pin A0        // Temperature analog input pin - OneWire sensor on pin 14
+#define Fuel_Pin A1        // Fuel level analog input pin
+#define Batt_Volt_Pin A2   // Voltage analog input pin
+#define Alternator_Pin A3  // Alternator indicator analog input pin
 
 // Pin definitions for outputs
 #define RPM_PWM_Out_Pin 9  // Output of RPM as a PWM signal for shift light
@@ -206,7 +211,7 @@ int speed_x = 54, speed_y = 75;
 int PB_x = 410, PB_y = 120;
 
 // Battery Voltage variables for "Power Good"
-int Battery_Volts, Raw_Battery_Volts, Dummy;
+int Converted_Safe_Voltage, Raw_Battery_Volts;
 
 // Distance variables
 // these in meters
@@ -271,16 +276,26 @@ void setup() {
   pinMode(Batt_Volt_Pin, INPUT);
 
   // =======================================================
+  // Recalculate the safe voltage value to raw analoge input value
+  // This is to avoid performing the reverse calculation every
+  // time there is a test for "power good" to improve loop rate
+  Converted_Safe_Voltage = int(Safe_Voltage / Input_Multiplier + 0.5);
+  // =======================================================
+
+  // =======================================================
   // Calculate the distance travelled per VSS pulse
   // based on tyre size, diff ratio and VSS pulses per tailshaft revolution, in millimeters
   distance_per_VSS_pulse = tyre_dia * PI / diff_r / vss_rev;  // millimeters
   pulses_per_km = 1000000.0 / distance_per_VSS_pulse;
   // =======================================================
 
-  // Maximum time pulsein will wait for a signal in microseconds
+  // =======================================================
+  // Calculate the pulseIn timeout in microseconds
+  // Maximum time pulsein will wait for a signal
   // Use period of lowest expected frequency from
   // diff_r , tyre_dia , vss_rev and Min_vspeed
   pulsein_timeout = 1000000.0 / (pulses_per_km * Min_vspeed / 3600.0) * 2.0;
+  // =======================================================
 
   // set some more values for the bar graph
   // these only need to be calculated once
@@ -682,8 +697,9 @@ void loop() {
     }
 
     // Calculate and set the Check value
+    // dont bother testing for power good a second time
     Odometer_Verify = ~Odometer_Total;
-    if (power_good()) Check_EEPROM.put(Odometer_Verify);
+    Check_EEPROM.put(Odometer_Verify);
 
     // Dont worry about re-reading the values to check if they wrote OK
     // If any fail hopefully 50% or more are OK
@@ -779,15 +795,18 @@ void loop() {
 
 
 // Set the power good status
+// in this case we dont need a dummy read of the analog pin to settle the value
+// since this is the only analog input used in this sketch
+// The raw input value is used to save calculations
+// and the threshold is calculated in Setup
 bool power_good() {
-  Dummy = analogRead(Batt_Volt_Pin);
   Raw_Battery_Volts = analogRead(Batt_Volt_Pin);
-  Battery_Volts = round(Raw_Battery_Volts * Input_Multiplier * 10.0);
-  Battery_Volts = constrain(Battery_Volts, 80, 160);
-  return (Battery_Volts >= Safe_Voltage);
+  return (Raw_Battery_Volts >= Converted_Safe_Voltage);
 }
 
+
 // ------------------------------------------------------
+
 
 // Function to return a 16 bit rainbow colour
 unsigned int rainbow(byte value) {
