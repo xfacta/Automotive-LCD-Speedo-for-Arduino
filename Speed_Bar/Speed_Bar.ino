@@ -1,27 +1,38 @@
-// Speedometer and Trip meter with ParkBrake warning
-// Large text with km travelled
-// Removed maximum speed
-// Removed gear indicator (requires RPM and extra calcs)
-// Bar style graphical meter
-// Dim display on parker lights
-// Park brake warning
-// Uses pulseIn , no interupts
-// Odometer saved to EEPROM wear leveling circular buffer
-// with EEPROM write denied during power-down
-// Changed to using bitwise NOT as a check and improved tests
-// Offloaded sounds to external Leonardo Tiny
+/*
+  Speedometer and Trip meter with ParkBrake warning
+  Large text with km travelled
+  Bar style graphical meter
+  Dim display on parker lights
+  Park brake warning
+  Uses pulseIn , no interupts
+  Odometer saved to EEPROM wear leveling circular buffer
+  with EEPROM write denied during power-down
+  Changed to using bitwise NOT as a check and improved odo tests
+  Offloaded sounds to external Leonardo Tiny
+  Removed maximum speed
+  Removed gear indicator with requires RPM and extra calcs
+*/
 
-// UTFT Libraries
-// Copyright (C)2015 Rinky-Dink Electronics, Henning Karlsen. All right reserved
-// web: http://www.RinkyDinkElectronics.com/
 
+/*
+  UTFT Libraries and fonts
+  Copyright (C)2015 Rinky-Dink Electronics, Henning Karlsen. All right reserved
+  web: http://www.RinkyDinkElectronics.com/
+*/
+
+/*
+  EEWL library is authored by Fabrizio Pollastri years 2017-2023,
+  under the GNU Lesser General Public License version 3
+*/
 
 
 #define Version "Speed Bar V16"
 
 
 
+//========================================================================
 //========================== Set These Manually ==========================
+//========================================================================
 
 float diff_r = 3.70;   // diff ratio
 float tyre_dia = 634;  // tyre diameter in mm
@@ -32,23 +43,34 @@ int Speed_Marker_1 = 39;  // set 1st speed marker on bar graph
 int Speed_Marker_2 = 58;  // set 2nd speed marker on bar graph
 int Speed_Marker_3 = 97;  // set 3rd speed marker on bar graph
 
-const bool Digitial_Input_Active = LOW;  // set whether digitial inputs are Low or High for active
+// Set whether digitial inputs are active low or active high
+// example: active low = pulled to ground for a valid button press
+const bool Digitial_Input_Active = LOW;
 
-// Kludge Factor is applied to the Frequency
+// Kludge factor to allow for differing
+// crystals and similar inconsistancies
+// this is applied to the Frequency
 float kludge_factor = 1.00;  // manual scalling of km/hr if needed
 
 const float vcc_ref = 4.92;  // measure the 5 volts DC and set it here
 const float R1 = 1200.0;     // measure and set the voltage divider values
 const float R2 = 3300.0;     // for accurate voltage measurements
 
-const float Safe_Voltage = 0.0;  // set to 11.0 for real usage
+// Power Good safe voltage level
+// used to deny eeprom writes while supply voltage is too low
+// set to about 120 for real usage -> voltage x10
+const int Safe_Voltage = 0;
 
 //========================================================================
 
 
 
+//========================================================================
 //========================== Calibration mode ===========================
+//========================================================================
 
+// Demo = true gives random speed values
+// Calibration = true displays some calculated and raw values
 bool Calibration_Mode = false;
 bool Demo_Mode = false;
 bool Debug_Mode = false;
@@ -57,16 +79,17 @@ bool Debug_Mode = false;
 
 
 
-// Using the EEWL EEPROM wear level library to spread data over the EEPROM
+// Using the EEWL EEPROM wear level library
+// to spread data over the EEPROM with a circular buffer
 #include <eewl.h>
 // pulls in <EEPROM.h> too
 // setting 100 blocks = 100*5 bytes = 500 bytes, approx 500*100000 writes
-// Changing these values will cause the EEPROM variables to be cleared
+// ! Changing these values will cause the EEPROM variables to be cleared
 #define BUFFER_LEN 0x0080     // 128 = number of data blocks (1 blk = 1 ulong = 4 bytes) + 1 byte overhead = 128 x 5 = 640 bytes
 #define BUFFER_START1 0x0100  // EEPROM address where buffer1/Odo1 starts (UL) = 256
-#define BUFFER_START2 0x0400  // EEPROM address where buffer2/Odo1 starts (UL) = 1024
-#define BUFFER_START3 0x0800  // EEPROM address where buffer3/Check1 starts (int) = 2048
-#define BUFFER_START4 0x0C00  // EEPROM address where buffer4/Check2 starts (int) = 3072
+#define BUFFER_START2 0x0400  // EEPROM address where buffer2/Odo2 starts (UL) = 1024
+#define BUFFER_START3 0x0800  // EEPROM address where buffer3/Odo3 starts (int) = 2048
+#define BUFFER_START4 0x0C00  // EEPROM address where buffer4/Check starts (int) = 3072
 
 
 // Screen and font stuff
@@ -78,11 +101,13 @@ bool Debug_Mode = false;
 UTFT myGLCD(ILI9481, 38, 39, 40, 41);
 UTFT_Geometry geo(&myGLCD);
 
-// My display needed the ILI8491 driver changed
-// to flip the display
-// LCD_Write_DATA(0x4A); <- correct
-// LCD_Write_DATA(0x8A); <- was
-// Possible values: 0x8A 0x4A 0x2A 0x1A
+/*
+  My display needed the ILI8491 driver changed
+  to flip the display
+  LCD_Write_DATA(0x4A); <- correct
+  LCD_Write_DATA(0x8A); <- was
+  Possible values: 0x8A 0x4A 0x2A 0x1A
+*/
 
 // Declare which fonts we will be using
 // and comment out the rest
@@ -120,27 +145,26 @@ int startup_time = 10000;
 
 // Voltage calculations
 /*
-   Read the Analog Input
-   adc_value = analogRead(ANALOG_IN_PIN);
+  Read the Analog Input
+  adc_value = analogRead(ANALOG_IN_PIN);
 
-   Determine voltage at ADC input
-   adc_voltage  = (adc_value+0.5) * ref_voltage / 1024.0 / (voltage divider)
+  Determine voltage at ADC input
+  adc_voltage  = (adc_value+0.5) * ref_voltage / 1024.0 / (voltage divider)
 
-   Calculate voltage at divider input
-   in_voltage = adc_voltage / (R2/(R1+R2));
+  Calculate voltage at divider input
+  in_voltage = adc_voltage / (R2/(R1+R2));
 
-   R1 = 3300
-   R2 = 1200
-   vref = default = ~5.0 volts
-   Vin = analogRead(ANALOG_IN_PIN) * 5 / 1024 / (3300/(3300+1200))
-   Vin = analogRead(ANALOG_IN_PIN) * 0.00665838
+  R1 = 3300
+  R2 = 1200
+  vref = default = ~5.0 volts
+  Vin = analogRead(ANALOG_IN_PIN) * 5 / 1024 / (3300/(3300+1200))
+  Vin = analogRead(ANALOG_IN_PIN) * 0.00665838
 */
 const float Input_Multiplier = vcc_ref / 1024.0 / (R2 / (R1 + R2));
 
 
 // Common pin definitions
 #define SD_Select 53
-
 
 // Pin definitions for digital inputs
 #define Oil_Press_Pin 0     // Oil pressure digital input pin
@@ -150,29 +174,26 @@ const float Input_Multiplier = vcc_ref / 1024.0 / (R2 / (R1 + R2));
 #define Pbrake_Input_Pin 4  // Park brake input pin
 #define VSS_Input_Pin 5     // Speed frequency input pin
 #define RPM_Input_Pin 6     // RPM frequency INPUT pin
-#define RPM_PWM_In_Pin 6    // Input PWM signal representing RPM
 #define Button_Pin 7        // Button momentary input
+#define RPM_PWM_In_Pin 8    // Input PWM signal representing RPM
 
 // Pin definitions for analog inputs
-#define Temp_Pin A0          // Temperature analog input pin - not used with OneWire sensor
+#define Temp_Pin A0          // Temperature analog input pin - OneWire sensor on pin 14
 #define Fuel_Pin A1          // Fuel level analog input pin
 #define Batt_Volt_Pin A2     // Voltage analog input pin
 #define Alternator_Pin A3    // Alternator indicator analog input pin
 #define Head_Light_Input A4  // Headlights via resistor ladder
-#define Power_Good_Pin A5    // Power good, deny EEPROM writes when going bad
 
 // Pin definitions for outputs
-#define RPM_PWM_Out_Pin 10  // Output of RPM as a PWM signal for shift light
-#define LED_Pin 10          // NeoPixel LED pin
-#define Warning_Pin 11      // Link to external Leonardo for general warning sounds
-#define OP_Warning_Pin 12   // Link to external Leonardo for oil pressure warning sound
-#define Relay_Pin 13        // Relay for fan control
-
+#define RPM_PWM_Out_Pin 9  // Output of RPM as a PWM signal for shift light
+#define LED_Pin 10         // NeoPixel LED pin
+#define Warning_Pin 11     // Link to external Leonardo for general warning sounds
+#define OP_Warning_Pin 12  // Link to external Leonardo for oil pressure warning sound
+#define Relay_Pin 13       // Relay for fan control
 
 // Times of last important events
 uint32_t distLoopTime;  // used to measure the next loop time
 uint32_t distIntTime;   // Interval time between loops
-
 
 // Speed variables
 float freq, vss, distance_per_VSS_pulse, pulses_per_km;
@@ -180,22 +201,30 @@ int vspeed, last_vspeed;
 uint32_t period, lowtime, hightime, pulsein_timeout;
 int speed_x = 54, speed_y = 75;
 
-
 // Park Brake variables
-// used for position of Park Brake indicator
+// position of Park Brake indicator
 int PB_x = 410, PB_y = 120;
 
+// Battery Voltage variables for "Power Good"
+int Battery_Volts, Raw_Battery_Volts, Dummy;
 
-//Distance variables
+// Distance variables
+// these in meters
 float avg_vspeed, DistM, DistINTm, DistTotalm, DistKM;
-float Odometer_Temp;  // in meters
-int dist_x = 260, dist_y = 240;
-int odo_x = 20, odo_y = 240;
-uint32_t Odometer_Total, Odometer_Verify, Odometer1, Odometer2, Odometer3, Odo_Check;  // Odo values read and writen to eeprom in km
-bool Odo1_Good, Odo2_Good, Odo3_Good, CRC_Good;                                      // flags for correct fifo operation
-uint32_t Odo1_Debug, Odo2_Debug, Odo3_Debug, Chk_Debug;                              // used for verifying writes
+float Odometer_Temp;
+// Odo values read and writen to eeprom
+// these in kilometers
+uint32_t Odometer_Total, Odometer_Verify, Odometer1, Odometer2, Odometer3, Odo_Check;
+// Flags for correct fifo operation
+bool Odo1_Good, Odo2_Good, Odo3_Good, CRC_Good;
+// Used for verifying writes in debug mode
+uint32_t Odo1_Debug, Odo2_Debug, Odo3_Debug, Chk_Debug;
+// Range of valid odometer values
 const uint32_t Odometer_Min = 101428;
 const uint32_t Odometer_Max = 999999;
+// Positions on display
+int dist_x = 260, dist_y = 240;
+int odo_x = 20, odo_y = 240;
 
 // Meter variables
 int blocks, new_val, num_segs, seg_size, x1, x2, block_colour;
@@ -228,11 +257,6 @@ void setup() {
     seed = (seed << 1) | (analogRead(A6) & 1);
   randomSeed(seed);
 
-
-  // Set any pins that might be used
-  // after testing take out any _PULLUP
-  // and rely on external interface electronics
-
   // Outputs
   pinMode(Warning_Pin, OUTPUT);
   digitalWrite(Warning_Pin, HIGH);
@@ -244,8 +268,7 @@ void setup() {
   pinMode(VSS_Input_Pin, INPUT_PULLUP);
 
   // Analog inputs
-  pinMode(Power_Good_Pin, INPUT);
-
+  pinMode(Batt_Volt_Pin, INPUT);
 
   // =======================================================
   // Calculate the distance travelled per VSS pulse
@@ -254,19 +277,16 @@ void setup() {
   pulses_per_km = 1000000.0 / distance_per_VSS_pulse;
   // =======================================================
 
-
   // Maximum time pulsein will wait for a signal in microseconds
   // Use period of lowest expected frequency from
   // diff_r , tyre_dia , vss_rev and Min_vspeed
   pulsein_timeout = 1000000.0 / (pulses_per_km * Min_vspeed / 3600.0) * 2.0;
-
 
   // set some more values for the bar graph
   // these only need to be calculated once
   num_segs = int(0.5 + (float)(meterMax - meterMin) / (float)seg_value);  // calculate number of segments
   seg_size = int(0.5 + (float)barLength / (float)num_segs);               // calculate segment width in pixels
   linearBarX = linearBarX + (barLength - num_segs * seg_size) / 2;        // centre the bar to allow for rounding errors
-
 
   // Display important startup items
   myGLCD.InitLCD(LANDSCAPE);
@@ -276,9 +296,9 @@ void setup() {
   myGLCD.setFont(font0);
   myGLCD.print((char *)Version, CENTER, CENTER);
 
-
   // Start the wear-leveling classes for EEPROM
   // this also initiates .fastFormat() on first use or no valid values
+  // or we uncomment the fastformat line to force it
   Odo1_EEPROM.begin();
   //Odo1_EEPROM.fastFormat();
   Odo2_EEPROM.begin();
@@ -297,6 +317,7 @@ void setup() {
     myGLCD.setColor(VGA_YELLOW);
     myGLCD.print((char *)"OD1 bad    ", LEFT, 100);
   } else {
+    // read was good
     Odo1_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
@@ -311,6 +332,7 @@ void setup() {
     myGLCD.setColor(VGA_YELLOW);
     myGLCD.print((char *)"OD2 bad    ", LEFT, 120);
   } else {
+    // read was good
     Odo2_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
@@ -325,6 +347,7 @@ void setup() {
     myGLCD.setColor(VGA_YELLOW);
     myGLCD.print((char *)"OD3 bad    ", LEFT, 140);
   } else {
+    // read was good
     Odo3_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
@@ -339,6 +362,7 @@ void setup() {
     myGLCD.setColor(VGA_YELLOW);
     myGLCD.print((char *)"CRC bad    ", LEFT, 160);
   } else {
+    // read was good
     CRC_Good = true;
     if (Debug_Mode) {
       myGLCD.setColor(VGA_GREEN);
@@ -443,7 +467,6 @@ void setup() {
   // Leave the important messages onscreen for a few seconds
   delay(2000);
 
-
   // Clear the screen and display static items
   myGLCD.clrScr();
   myGLCD.setColor(VGA_GRAY);
@@ -453,12 +476,11 @@ void setup() {
   //myGLCD.print((char*) "km", dist_x + 210, dist_y + 32);
   //myGLCD.print((char*) "km", odo_x + 210, odo_y + 32);
 
-
   // Set calibration mode from long-press button input
   // during startup
   if (digitalRead(Button_Pin) == Digitial_Input_Active) {
     // Allow time for the button pin to settle
-    // assumes some electronic/external debounce
+    // this assumes some electronic/external debounce
     delay(10);
     while (digitalRead(Button_Pin) == Digitial_Input_Active) {
       // just wait until button released
@@ -470,9 +492,10 @@ void setup() {
     }
   }
 
-
   if (Calibration_Mode) {
-    Demo_Mode = false;  // cant have both demo mode and calibration mode at once
+    // cant have both demo mode and calibration mode at once
+    Demo_Mode = false;
+    // print some of the working variables
     myGLCD.printNumF(distance_per_VSS_pulse, 2, 0, 265, '.', 6, ' ');
     myGLCD.printNumF(pulses_per_km, 2, 0, 285, '.', 6, ' ');
   } else {
@@ -482,7 +505,6 @@ void setup() {
     myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
   }
 
-
   // Draw triangles at predetermined points
   int S1 = linearBarX + int(0.5 + (float)barLength / ((float)meterMax / (float)Speed_Marker_1));  // 1st mark
   int S2 = linearBarX + int(0.5 + (float)barLength / ((float)meterMax / (float)Speed_Marker_2));  // 2nd mark
@@ -491,7 +513,6 @@ void setup() {
   geo.fillTriangle(S1 - 4, linearBarY + barWidth + 8, S1 + 4, linearBarY + barWidth + 8, S1, linearBarY + barWidth + 2);
   geo.fillTriangle(S2 - 4, linearBarY + barWidth + 8, S2 + 4, linearBarY + barWidth + 8, S2, linearBarY + barWidth + 2);
   geo.fillTriangle(S3 - 4, linearBarY + barWidth + 8, S3 + 4, linearBarY + barWidth + 8, S3, linearBarY + barWidth + 2);
-
 
   // set initial timing value
   distLoopTime = millis();
@@ -514,7 +535,7 @@ void loop() {
 
   if (digitalRead(Button_Pin) == Digitial_Input_Active) {
     // Allow time for the button pin to settle
-    // assumes some electronic/external debounce
+    // this assumes some electronic/external debounce
     delay(10);
     if (digitalRead(Button_Pin) == Digitial_Input_Active) DistTotalm = 0;
   }
@@ -601,9 +622,9 @@ void loop() {
   }
 
   // the reluctor pickup is not accurate below 4km/hr
-    // round up the vspeed so it doesnt under-read
+  // round up the vspeed so it doesnt under-read
   vspeed = round(vss + 0.5);
-  if (vspeed < Min_vspeed || vspeed > 220) vspeed = 0;
+  if (vspeed < Min_vspeed || vspeed > 240) vspeed = 0;
 
 
   // =======================================================
@@ -660,7 +681,7 @@ void loop() {
       Odo3_EEPROM.put(Odometer_Total);
     }
 
-    // Calculate and set the CRC value
+    // Calculate and set the Check value
     Odometer_Verify = ~Odometer_Total;
     if (power_good()) Check_EEPROM.put(Odometer_Verify);
 
@@ -680,8 +701,6 @@ void loop() {
   // =======================================================
   // Display the speed
   // =======================================================
-
-  constrain(vspeed, 0, 200);
 
   myGLCD.setFont(font7L);
   if (vspeed <= 99) {
@@ -705,6 +724,10 @@ void loop() {
   // =======================================================
   // Draw the barmeter
   // =======================================================
+
+  // Limit the speed to what the bar meter can handle
+  // even though the printed digits might be a greater value
+  constrain(vspeed, meterMin, meterMax);
 
   int new_val = map(vspeed, meterMin, meterMax, 0, num_segs);
 
@@ -755,15 +778,16 @@ void loop() {
 // =======================================================
 
 
-
 // Set the power good status
 bool power_good() {
-  return ((analogRead(Power_Good_Pin) * int(Input_Multiplier)) >= Safe_Voltage);
+  Dummy = analogRead(Batt_Volt_Pin);
+  Raw_Battery_Volts = analogRead(Batt_Volt_Pin);
+  Battery_Volts = round(Raw_Battery_Volts * Input_Multiplier * 10.0);
+  Battery_Volts = constrain(Battery_Volts, 80, 160);
+  return (Battery_Volts >= Safe_Voltage);
 }
 
-
-// =======================================================
-
+// ------------------------------------------------------
 
 // Function to return a 16 bit rainbow colour
 unsigned int rainbow(byte value) {
@@ -808,7 +832,9 @@ unsigned int rainbow(byte value) {
 void Verify_Write() {
 
 
-  //Odo1_Debug, Odo2_Debug, Odo3_Debug, Chk_Debug
+  // Only used in debug mode
+  // otherwise EEPROM writes are assumed to be reliable
+  // Odo1_Debug, Odo2_Debug, Odo3_Debug, Chk_Debug
 
   myGLCD.setBackColor(VGA_BLACK);
   myGLCD.setFont(font0);
