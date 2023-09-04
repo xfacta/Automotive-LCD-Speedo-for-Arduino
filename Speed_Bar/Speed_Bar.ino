@@ -267,10 +267,12 @@ void setup() {
   digitalWrite(Warning_Pin, HIGH);
 
   // Digital inputs
+  // remove input_pullup's after testing
+  // since pullups are handled by external hardware
   pinMode(Button_Pin, INPUT_PULLUP);
   pinMode(Pbrake_Input_Pin, INPUT_PULLUP);
   pinMode(Low_Beam_Pin, INPUT_PULLUP);
-  pinMode(VSS_Input_Pin, INPUT_PULLUP);
+  pinMode(VSS_Input_Pin, INPUT);
 
   // Analog inputs
   pinMode(Batt_Volt_Pin, INPUT);
