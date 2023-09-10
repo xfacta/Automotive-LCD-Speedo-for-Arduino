@@ -39,9 +39,9 @@
 //-------------------------- Set These Manually --------------------------
 //========================================================================
 
-float diff_r   = 3.70;    // diff ratio
-float tyre_dia = 634;     // tyre diameter in mm
-float vss_rev  = 4;       // vss pulses per tailshaft revolution
+float diff_r         = 3.70;    // diff ratio
+float tyre_dia       = 634;     // tyre diameter in mm
+float vss_rev        = 4;       // vss pulses per tailshaft revolution
 
 float Min_vspeed     = 4;     // set the minimum expected speed
 int   Speed_Marker_1 = 39;    // set 1st speed marker on bar graph
@@ -900,9 +900,9 @@ unsigned int rainbow(byte value)
     // Value is expected to be in range 0-127
     // The value is converted to a spectrum colour from 0 = blue through to 127 = red
 
-    byte red   = 0;    // Red is the top 5 bits of a 16 bit colour value
-    byte green = 0;    // Green is the middle 6 bits
-    byte blue  = 0;    // Blue is the bottom 5 bits
+    byte red      = 0;    // Red is the top 5 bits of a 16 bit colour value
+    byte green    = 0;    // Green is the middle 6 bits
+    byte blue     = 0;    // Blue is the bottom 5 bits
 
     byte quadrant = value / 32;
 
