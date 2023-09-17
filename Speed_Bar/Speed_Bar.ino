@@ -8,6 +8,7 @@
   Uses pulseIn , no interupts
   Odometer saved to EEPROM wear leveling circular buffer
   and EEPROM write denied during power-down
+  Odometer saved to SD Card while vehicle stationary
   Changed to using bitwise NOT as a check and improved odo tests
   Offloaded sounds to external Leonardo Tiny
   Improved power-good test
@@ -87,6 +88,10 @@ bool Debug_Mode       = false;
 
 //========================================================================
 
+
+// Needed for SD Card operation
+#include <SD.h>
+#include <SPI.h>
 
 
 // Using the EEWL EEPROM wear level library
@@ -238,6 +243,12 @@ const uint32_t Odometer_Max = 999999;
 int dist_x = 260, dist_y = 240;
 int odo_x = 20, odo_y = 240;
 
+// SD Card variables
+bool     SD_Present;
+String   SD_Filename = "Odometer.dat";
+File     SD_DataFile;
+uint32_t OdometerSD, Temp_SD, SD_size;
+
 // Meter variables
 int       blocks, new_val, num_segs, seg_size, x1, x2, block_colour;
 int       linearBarX = 15, linearBarY = 10;    // bar starting position in pixels
@@ -285,6 +296,9 @@ void setup()
     // Analog inputs
     pinMode(Batt_Volt_Pin, INPUT);
 
+    //Init SD_Card
+    pinMode(SD_Select, OUTPUT);
+
     // =======================================================
     // Recalculate the safe voltage value to raw analoge input value
     // This is to avoid performing the reverse calculation every
@@ -323,6 +337,30 @@ void setup()
     myGLCD.setFont(font0);
     myGLCD.print((char *)Version, CENTER, CENTER);
 
+    // =======================================================
+    // Try to access the SD Card
+    if (!SD.begin(SD_Select))
+        {
+        SD_Present = false;
+        }
+    else
+        {
+        SD_Present = true;
+        if (SD.exists(SD_Filename))
+            // Read the file
+            {
+            OdometerSD = read_SD();
+            }
+        else
+            // Write a new file
+            // with the minimum value
+            {
+            SD_DataFile = SD.open(SD_Filename, FILE_WRITE);
+            SD_DataFile.write((byte *)&Odometer_Min, sizeof(unsigned long));
+            SD_DataFile.close();
+            }
+        }
+    // =======================================================
 
     // =======================================================
     // Odometer read and verification below
@@ -445,7 +483,7 @@ void setup()
         myGLCD.setColor(VGA_RED);
         myGLCD.print((char *)"EEPROM bad", CENTER, 160);
         myGLCD.print((char *)"Attempting", CENTER, 180);
-        myGLCD.print((char *)"recovery", CENTER, 200);
+        myGLCD.print((char *)"Recovery", CENTER, 200);
         }
 
     // Further Consistency checks are required
@@ -480,10 +518,19 @@ void setup()
         Odometer_Total = max(max(Odometer1, Odometer2), ~Odometer_Verify);
         }
 
+    // Try the value stored on SD Card, if present
+    if (SD_Present)
+        // Read has already been successful
+        {
+        myGLCD.setColor(VGA_GREEN);
+        myGLCD.print((char *)"SDC good", CENTER, 220);
+        Odometer_Total = max(Odometer_Total, OdometerSD);
+        }
+
 Odometer_Fixed:
     // Odometer now fixed, or at least
     // contains the best/highest available good value
-    // Recalc the CRC in case it wasnt correct for the updated Odo value
+    // Recalc the Check value in case it doesnt match the updated Odo value
     Odometer_Verify = ~Odometer_Total;
 
     // Try to write the updated valid values back into EEPROM
@@ -497,9 +544,10 @@ Odometer_Fixed:
     // end of odometer section
     // =======================================================
 
-    // Leave the important messages onscreen for a few seconds
-    delay(2000);
+    // Leave the important messages onscreen for a second
+    delay(1000);
 
+    // Now we are into sustained operation
     // Clear the screen and display static items
     myGLCD.clrScr();
     myGLCD.setColor(VGA_GRAY);
@@ -894,6 +942,80 @@ bool power_good()
 // ------------------------------------------------------
 
 
+// Read from SD Card
+uint32_t read_SD()
+    {
+    myGLCD.setFont(font0);
+    myGLCD.setBackColor(VGA_BLACK);
+    myGLCD.setColor(VGA_BLACK);
+    SD_DataFile = SD.open(SD_Filename, FILE_READ);
+    if (!SD_DataFile)
+        // Unable to open file
+        // Ignore the SD Card from now on
+        {
+        SD_Present = false;
+        Temp_SD    = 0;
+        myGLCD.setColor(VGA_ORANGE);
+        }
+    else
+        {
+        // Read the required number of bytes
+        SD_DataFile.seek(SD_DataFile.size() - sizeof(Temp_SD));
+        SD_DataFile.read((byte *)&Temp_SD, sizeof(Temp_SD));
+        SD_DataFile.close();
+        if (Debug_Mode)
+            {
+            myGLCD.setColor(VGA_GREEN);
+            }
+        if (Temp_SD < Odometer_Min || Temp_SD >= Odometer_Max)
+            // Value out of range, fix it
+            {
+            OdometerSD = Odometer_Min;
+            myGLCD.setColor(VGA_YELLOW);
+            }
+        }
+    // This should only appear if there is a problem, or debug mode
+    myGLCD.print((char *)"SDC ", LEFT, 160);
+    return Temp_SD;
+    }
+
+
+// ------------------------------------------------------
+
+
+// Write to SD Card
+uint32_t update_SD(uint32_t Temp_SD)
+    {
+    myGLCD.setFont(font0);
+    myGLCD.setBackColor(VGA_BLACK);
+    myGLCD.setColor(VGA_BLACK);
+    SD_DataFile = SD.open(SD_Filename, FILE_WRITE);
+    if (!SD_DataFile)
+        // Unable to open file
+        // Ignore the SD Card from now on
+        {
+        SD_Present = false;
+        myGLCD.setColor(VGA_ORANGE);
+        }
+    else
+        {
+        // Append the last four bytes
+        SD_DataFile.seek(SD_DataFile.size());
+        SD_DataFile.write((byte *)&Temp_SD, sizeof(unsigned long));
+        SD_DataFile.close();
+        if (Debug_Mode)
+            {
+            myGLCD.setColor(VGA_GREEN);
+            }
+        }
+    // This should only appear if there is a problem, or debug mode
+    myGLCD.print((char *)"SDC ", LEFT, 160);
+    }
+
+
+// ------------------------------------------------------
+
+
 // Function to return a 16 bit rainbow colour
 unsigned int rainbow(byte value)
     {
@@ -949,6 +1071,13 @@ void Verify_Write()
     // only if power is good
     if (power_good())
         {
+
+        if (SD_Present)
+            {
+            // Write latest Odometer total to SD Card
+            update_SD(Odometer_Total);
+            }
+
         myGLCD.setBackColor(VGA_BLACK);
         myGLCD.setFont(font0);
 
@@ -957,6 +1086,8 @@ void Verify_Write()
         Odo2_EEPROM.get(Odometer2);
         Check_EEPROM.get(Odometer_Verify);
 
+        // Odometer_Total is still the live running total
+        // to be compared against
         if (Odometer1 != Odometer_Total)
             {
             // Try to write Odo1 again
@@ -968,11 +1099,12 @@ void Verify_Write()
             {
             if (Debug_Mode)
                 {
+                // Highlight a good result
                 myGLCD.setColor(VGA_GREEN);
                 }
             else
                 {
-                // Hide any previous result
+                // Hide the previous result
                 myGLCD.setColor(VGA_BLACK);
                 }
             }
@@ -989,11 +1121,12 @@ void Verify_Write()
             {
             if (Debug_Mode)
                 {
+                // Highlight a good result
                 myGLCD.setColor(VGA_GREEN);
                 }
             else
                 {
-                // Hide any previous result
+                // Hide the previous result
                 myGLCD.setColor(VGA_BLACK);
                 }
             }
@@ -1011,11 +1144,12 @@ void Verify_Write()
             {
             if (Debug_Mode)
                 {
+                // Highlight a good result
                 myGLCD.setColor(VGA_GREEN);
                 }
             else
                 {
-                // Hide any previous result
+                // Hide the previous result
                 myGLCD.setColor(VGA_BLACK);
                 }
             }
@@ -1028,7 +1162,8 @@ void Verify_Write()
             myGLCD.printNumI((Odometer_Total - Odometer1), LEFT, 180, 3, ' ');
             myGLCD.printNumI((Odometer_Total - Odometer2), LEFT, 200, 3, ' ');
             }
-        }
+
+        }    //  end if power good
 
     }    //  end void Verify_Write()
 
