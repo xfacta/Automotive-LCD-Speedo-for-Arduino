@@ -11,7 +11,7 @@
 - Uses pulseIn , no interupts
 - Odometer saved to EEPROM with wear-leveling thanks to EEWL
   - and two redundant copies of the odometer value
-  - and two reduntant copies of check values
+  - and copy to SDCARD, saved while the vehicle is stationary
   - EEPROM write denied during power-down
 - Offloaded sounds to external Leonardo Tiny
 
@@ -75,6 +75,7 @@ Pressing the button during normal operation resets the trip meter value.
 Currently there is only a crude long-press detection using delay, and some debouncing in hardware is assumed.
 
 The sounds are offloaded to a Leonardo Tiny to avoid delays and allow one Tiny and speaker to service multiple other warning sounds.
+The park brake indication initiates a warning sound if the vehicle is not stationary.
 
 The dimming function works by changing to using light grey and dark grey instead of white and colours, since there is no backlight control on the LCD panel I used.
 
