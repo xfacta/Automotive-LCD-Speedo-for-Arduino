@@ -47,7 +47,7 @@
 */
 
 
-#define Version "Speed Bar V17"
+#define Version "Speed Bar V18"
 
 
 
@@ -59,10 +59,11 @@ float diff_r         = 3.70;    // diff ratio
 float tyre_dia       = 634;     // tyre diameter in mm
 float vss_rev        = 4;       // vss pulses per tailshaft revolution
 
-float Min_vspeed     = 4;     // set the minimum expected speed
-int   Speed_Marker_1 = 39;    // set 1st speed marker on bar graph
-int   Speed_Marker_2 = 58;    // set 2nd speed marker on bar graph
-int   Speed_Marker_3 = 97;    // set 3rd speed marker on bar graph
+float Min_vspeed     = 4;      // set the minimum expected speed
+float Max_vspeed     = 240;    // set maximum expected speed
+int   Speed_Marker_1 = 39;     // set 1st speed marker on bar graph
+int   Speed_Marker_2 = 58;     // set 2nd speed marker on bar graph
+int   Speed_Marker_3 = 97;     // set 3rd speed marker on bar graph
 
 // Set whether digitial inputs are active low or active high
 // example: active low = pulled to ground for a valid button press
@@ -98,7 +99,7 @@ const float Safe_Voltage = 0.0;
 // Demo = true gives random speed values
 // Calibration = true displays some calculated and raw values
 bool Calibration_Mode = false;
-bool Demo_Mode        = true;
+bool Demo_Mode        = false;
 bool Debug_Mode       = false;
 
 //========================================================================
@@ -232,7 +233,7 @@ uint32_t odoCheckInterval = 600000;    // minimum time between checking saved od
 // Speed variables
 float    freq, vss, distance_per_VSS_pulse, pulses_per_km;
 int      vspeed, last_vspeed;
-uint32_t period, lowtime, hightime, pulsein_timeout;
+uint32_t period, lowtime, hightime, pulsein_timeout, period_min;
 int      speed_x = 54, speed_y = 75;
 
 // Park Brake variables
@@ -260,7 +261,7 @@ int odo_x = 20, odo_y = 240;
 
 // SD Card variables
 bool     SD_Present;
-char   SD_Filename[] = "Odometer.dat";
+char     SD_Filename[] = "Odometer.dat";
 File     SD_DataFile;
 uint32_t OdometerSD, Temp_SD, SD_size;
 
@@ -334,6 +335,14 @@ void setup()
     // Use period of lowest expected frequency from
     // diff_r , tyre_dia , vss_rev and Min_vspeed
     pulsein_timeout = 1000000.0 / (pulses_per_km * Min_vspeed / 3600.0) * 2.0;
+    // =======================================================
+
+    // =======================================================
+    // Calculate the minimum in microseconds
+    // values beyond this would be considered noise or an error
+    // this helps to prevent divide by zero errors
+    // based on maximum speed and halve it
+    period_min = 1000000.0 / (pulses_per_km * Max_vspeed / 3600.0) / 2.0;
     // =======================================================
 
     // =======================================================
@@ -734,7 +743,7 @@ void loop()
         lowtime  = pulseIn(VSS_Input_Pin, LOW, pulsein_timeout);
         period   = hightime + lowtime;
         // prevent overflows or divide by zero
-        if (period > 1000)
+        if (period > period_min)
             {
             freq = 1000000.0 / (float)period * kludge_factor;
             }
@@ -769,8 +778,8 @@ void loop()
         {
         vspeed = 0;
         }
-    else if (vspeed > 240)
-        vspeed = 240;
+    else if (vspeed > int(Max_vspeed))
+        vspeed = int(Max_vspeed);
 
 
     // =======================================================
