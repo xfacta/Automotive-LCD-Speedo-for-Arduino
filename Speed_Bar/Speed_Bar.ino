@@ -21,7 +21,7 @@
   Dim display on parker lights
   Park brake warning
   Uses pulseIn , no interupts
-  Odometer saved to EEPROM wear leveling circular buffer
+  Odometer saved to EEPROM wear levelling circular buffer
   and EEPROM write denied during power-down
   Odometer saved to SD Card while vehicle stationary
   Changed to using bitwise NOT as a check and improved odo tests
@@ -42,7 +42,7 @@
 */
 
 /*
-  EEWL library is authored by Fabrizio Pollastri years 2017-2023,
+  EEWL library is authored by Fabrizio Pollastri
   under the GNU Lesser General Public License version 3
 */
 
@@ -55,7 +55,7 @@
 //-------------------------- Set These Manually --------------------------
 //========================================================================
 
-float diff_r         = 3.70;    // diff ratio
+float diff_r         = 3.70;    // differential ratio
 float tyre_dia       = 634;     // tyre diameter in mm
 float vss_rev        = 4;       // vss pulses per tailshaft revolution
 
@@ -74,8 +74,7 @@ const bool Valid_Warning = LOW;
 
 // Kludge factor to allow for differing
 // crystals and similar inconsistancies
-// this is applied to the Frequency
-float kludge_factor = 1.00;    // manual scalling of km/hr if needed
+float Kludge_Factor = 1.000;
 
 // Set these to ensure correct voltage readings of analog inputs
 const float vcc_ref = 4.92;      // measure the 5 volts DC and set it here
@@ -97,10 +96,14 @@ const float Safe_Voltage = 0.0;
 //========================================================================
 
 // Demo = true gives random speed values
-// Calibration = true displays some calculated and raw values
-bool Calibration_Mode = false;
+
 bool Demo_Mode        = false;
 bool Debug_Mode       = false;
+
+// Danger Will Robinson!
+bool wipe_totals = false;
+// Set back to fasle and upload again
+// or this takes effect every reboot
 
 //========================================================================
 
@@ -231,7 +234,7 @@ uint32_t odoCheckTime;                 // Last time saved odometer value was ver
 uint32_t odoCheckInterval = 600000;    // minimum time between checking saved odometer values, 10 minutes
 
 // Speed variables
-float    freq, vss, distance_per_VSS_pulse, pulses_per_km;
+float    freq, vss, distance_per_VSS_pulse, pulses_per_km, VSS_constant;
 int      vspeed, last_vspeed;
 uint32_t period, lowtime, hightime, pulsein_timeout, period_min;
 int      speed_x = 54, speed_y = 75;
@@ -325,9 +328,15 @@ void setup()
     // =======================================================
     // Calculate the distance travelled per VSS pulse
     // based on tyre size, diff ratio and VSS pulses per tailshaft revolution, in millimeters
+    // Also calculate the VSS contant up front to avoid
+    // doing so many divides every loop
     distance_per_VSS_pulse = tyre_dia * PI / diff_r / vss_rev;    // millimeters
     pulses_per_km          = 1000000.0 / distance_per_VSS_pulse;
+    VSS_constant           = 3600000000.0 / pulses_per_km * Kludge_Factor;
     // =======================================================
+    //freq = 1000000.0 / (float)period;
+    //vss = 3600.0 * freq / pulses_per_km;
+    //vss = 3600.0 * 1000000.0 / (float)period / pulses_per_km;
 
     // =======================================================
     // Calculate the pulseIn timeout in microseconds
@@ -370,18 +379,18 @@ void setup()
     else
         {
         SD_Present = true;
-        if (SD.exists(SD_Filename))
-            // Read the file
-            {
-            OdometerSD = read_SD();
-            }
-        else
+        if (wipe_totals | !SD.exists(SD_Filename))
             // Write a new file
             // with the minimum value
             {
             SD_DataFile = SD.open(SD_Filename, FILE_WRITE);
             SD_DataFile.write((byte *)&Odometer_Min, sizeof(unsigned long));
             SD_DataFile.close();
+            }
+        else
+            // Read the file
+            {
+            OdometerSD = read_SD();
             }
         }
     // =======================================================
@@ -393,11 +402,14 @@ void setup()
     // this also initiates .fastFormat() on first use or no valid values
     // uncomment the fastformat line to force it
     Odo1_EEPROM.begin();
-    //Odo1_EEPROM.fastFormat();
+    if (wipe_totals)
+        Odo1_EEPROM.fastFormat();
     Odo2_EEPROM.begin();
-    //Odo2_EEPROM.fastFormat();
+    if (wipe_totals)
+        Odo2_EEPROM.fastFormat();
     Check_EEPROM.begin();
-    //Check_EEPROM.fastFormat();
+    if (wipe_totals)
+        Check_EEPROM.fastFormat();
 
     // Try to read saved values
     // EEWL returns a bool status if the read is not successful
@@ -579,41 +591,10 @@ Odometer_Fixed:
     myGLCD.setFont(font0);
     myGLCD.print((char *)"km/h", speed_x + 300, speed_y + 124);
 
-    // =======================================================
-    // Set calibration mode from long-press button input
-    // during startup
-    if (digitalRead(Button_Pin) == Digitial_Input_Active)
-        {
-        // Allow time for the button pin to settle
-        // this assumes some electronic/external debounce
-        delay(10);
-        while (digitalRead(Button_Pin) == Digitial_Input_Active)
-            {
-            // just wait until button released
-            myGLCD.setColor(VGA_WHITE);
-            myGLCD.setBackColor(VGA_BLACK);
-            myGLCD.setFont(font0);
-            myGLCD.print((char *)"CAL", LEFT, 80);
-            Calibration_Mode = true;
-            }
-        }
-    // =======================================================
-
-    if (Calibration_Mode)
-        {
-        // cant have both demo mode and calibration mode at once
-        Demo_Mode = false;
-        // print some of the working variables
-        myGLCD.printNumF(distance_per_VSS_pulse, 2, 0, 265, '.', 6, ' ');
-        myGLCD.printNumF(pulses_per_km, 2, 0, 285, '.', 6, ' ');
-        }
-    else
-        {
-        // Display the stored Odometer value
-        myGLCD.setColor(text_colour2);
-        myGLCD.setFont(font7F);
-        myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
-        }
+    // Display the stored Odometer value
+    myGLCD.setColor(text_colour2);
+    myGLCD.setFont(font7F);
+    myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
 
     // =======================================================
     // Draw small triangles at predetermined points
@@ -711,9 +692,6 @@ void loop()
             // Set the colours for a red "P"
             myGLCD.setColor(VGA_BLACK);
             myGLCD.setBackColor(VGA_RED);
-            // sound a warning tone if vehicle is moving
-            if (vspeed > 0)
-                digitalWrite(Warning_Pin, Valid_Warning);
             }
         else
             {
@@ -721,9 +699,6 @@ void loop()
             // Set the colours for a black a "P"
             myGLCD.setColor(VGA_BLACK);
             myGLCD.setBackColor(VGA_BLACK);
-            // If the Warning sound is on, turn it off
-            if (digitalRead(Warning_Pin) == Valid_Warning)
-                digitalWrite(Warning_Pin, !Valid_Warning);
             }
         // Do the actual display
         myGLCD.setFont(font7F);
@@ -742,24 +717,15 @@ void loop()
         hightime = pulseIn(VSS_Input_Pin, HIGH, pulsein_timeout);
         lowtime  = pulseIn(VSS_Input_Pin, LOW, pulsein_timeout);
         period   = hightime + lowtime;
+
         // prevent overflows or divide by zero
         if (period > period_min)
             {
-            freq = 1000000.0 / (float)period * kludge_factor;
+            vss = VSS_constant / (float)period;
             }
         else
             {
-            freq = 0;
-            }
-        vss = 3600.0 * freq / pulses_per_km;
-
-        if (Calibration_Mode)
-            {
-            myGLCD.setColor(VGA_GRAY);
-            myGLCD.setBackColor(VGA_BLACK);
-            myGLCD.setFont(font0);
-            myGLCD.printNumI(period, 0, 220, 4);
-            myGLCD.printNumI(freq, 0, 240, 4);
+            vss = 0.0;
             }
         }
     else
