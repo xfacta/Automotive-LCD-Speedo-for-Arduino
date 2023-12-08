@@ -97,12 +97,12 @@ const float Safe_Voltage = 0.0;
 
 // Demo = true gives random speed values
 
-bool Demo_Mode        = false;
-bool Debug_Mode       = false;
+bool Demo_Mode  = false;
+bool Debug_Mode = false;
 
 // Danger Will Robinson!
 bool wipe_totals = false;
-// Set back to fasle and upload again
+// Set back to false and upload again
 // or this takes effect every reboot
 
 //========================================================================
@@ -333,10 +333,11 @@ void setup()
     distance_per_VSS_pulse = tyre_dia * PI / diff_r / vss_rev;    // millimeters
     pulses_per_km          = 1000000.0 / distance_per_VSS_pulse;
     VSS_constant           = 3600000000.0 / pulses_per_km * Kludge_Factor;
-    // =======================================================
+    // based on:
     //freq = 1000000.0 / (float)period;
     //vss = 3600.0 * freq / pulses_per_km;
     //vss = 3600.0 * 1000000.0 / (float)period / pulses_per_km;
+    // =======================================================
 
     // =======================================================
     // Calculate the pulseIn timeout in microseconds
@@ -717,6 +718,7 @@ void loop()
         hightime = pulseIn(VSS_Input_Pin, HIGH, pulsein_timeout);
         lowtime  = pulseIn(VSS_Input_Pin, LOW, pulsein_timeout);
         period   = hightime + lowtime;
+        //period = random(period_min, pulsein_timeout);
 
         // prevent overflows or divide by zero
         if (period > period_min)
@@ -737,7 +739,7 @@ void loop()
         }
 
     // Set vspeed from the float vss
-    vspeed = round(vss);
+    vspeed = int(vss + 0.5);
     // Limit the vspeed range
     // A reluctor pickup is not accurate below 4km/hr
     if (vspeed < Min_vspeed)
@@ -793,7 +795,7 @@ void loop()
     // to the permenant odo and reset the temporary value
     if (Odometer_Temp >= 1000)
         {
-        Odometer_Total += round(Odometer_Temp / 1000.0);
+        Odometer_Total += int(Odometer_Temp / 1000.0 + 0.5);
 
         // Display the new Odo total since the value has just updated
         myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
