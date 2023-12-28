@@ -10,7 +10,7 @@
 
 
 // Just in case you are not using the Arduino IDE
-#include <arduino.h>
+//#include <arduino.h>
 
 
 /*
@@ -47,7 +47,7 @@
 */
 
 
-#define Version "Speed Bar V18"
+#define Version "Speed Bar V19"
 
 
 
@@ -60,10 +60,12 @@ float tyre_dia       = 634;     // tyre diameter in mm
 float vss_rev        = 4;       // vss pulses per tailshaft revolution
 
 float Min_vspeed     = 4;      // set the minimum expected speed
-float Max_vspeed     = 240;    // set maximum expected speed
-int   Speed_Marker_1 = 39;     // set 1st speed marker on bar graph
-int   Speed_Marker_2 = 58;     // set 2nd speed marker on bar graph
-int   Speed_Marker_3 = 97;     // set 3rd speed marker on bar graph
+float Max_vspeed     = 240;    // set maximum speed for digits
+int   Max_barspeed   = 200;    // set maximum speed for bar graph
+int   Speed_Marker_1 = 40;     // set 1st speed marker on bar graph
+int   Speed_Marker_2 = 60;     // set 2nd speed marker on bar graph
+int   Speed_Marker_3 = 80;    // set 3rd speed marker on bar graph
+int   Speed_Marker_4 = 100;    // set 4th speed marker on bar graph
 
 // Set whether digitial inputs are active low or active high
 // example: active low = pulled to ground for a valid button press
@@ -97,7 +99,7 @@ const float Safe_Voltage = 0.0;
 
 // Demo = true gives random speed values
 
-bool Demo_Mode  = false;
+bool Demo_Mode  = true;
 bool Debug_Mode = false;
 
 // Danger Will Robinson!
@@ -130,8 +132,6 @@ bool wipe_totals = false;
 #include <UTFT.h>
 // needed for drawing triangles
 #include <UTFT_Geometry.h>
-// orange is missing from the default range
-#define VGA_ORANGE 0xFD20 /* 255, 165,   0 */
 
 UTFT          myGLCD(ILI9481, 38, 39, 40, 41);
 UTFT_Geometry geo(&myGLCD);
@@ -143,6 +143,29 @@ UTFT_Geometry geo(&myGLCD);
   LCD_Write_DATA(0x8A); <- was
   Possible values: 0x8A 0x4A 0x2A 0x1A
 */
+
+/*
+Available colours
+  VGA_BLACK	
+  VGA_WHITE	
+  VGA_RED
+  VGA_GREEN	
+  VGA_BLUE	
+  VGA_SILVER	
+  VGA_GRAY	
+  VGA_MAROON	
+  VGA_YELLOW	
+  VGA_OLIVE	
+  VGA_LIME	
+  VGA_AQUA	
+  VGA_TEAL	
+  VGA_NAVY	
+  VGA_FUCHSIA
+  VGA_PURPLE	
+  VGA_TRANSPARENT
+*/
+// orange is missing from the default range
+#define VGA_ORANGE 0xFD20 /* 255, 165,   0 */
 
 // Declare which fonts will be used
 // and comment out the rest
@@ -228,20 +251,17 @@ const int OP_Warning_Pin = 12;    // Link to external Leonardo for oil pressure 
 const int Relay_Pin      = 13;    // Relay for fan control
 
 // Times of last important events
-uint32_t distLoopTime;                 // used to measure the next loop time
-uint32_t distIntTime;                  // Interval time between loops
-uint32_t odoCheckTime;                 // Last time saved odometer value was verified
-uint32_t odoCheckInterval = 600000;    // minimum time between checking saved odometer values, 10 minutes
+uint32_t distLoopTime;                   // used to measure the next loop time
+uint32_t distIntTime;                    // Interval time between loops
+uint32_t odoCheckTime;                   // Last time saved odometer value was verified
+uint32_t odoCheckInterval   = 600000;    // minimum time between checking saved odometer values, 10 minutes
+bool     Pbrake_last_status = false;     // last status of Park Brake
+int      spinnerState       = 1;
 
 // Speed variables
 float    freq, vss, distance_per_VSS_pulse, pulses_per_km, VSS_constant;
-int      vspeed, last_vspeed;
+int      vspeed, last_vspeed, barspeed, last_barspeed;
 uint32_t period, lowtime, hightime, pulsein_timeout, period_min;
-int      speed_x = 54, speed_y = 75;
-
-// Park Brake variables
-bool Pbrake_last_status = false;
-int  PB_x = 410, PB_y = 120;
 
 // Battery Voltage variables for "Power Good"
 int Converted_Safe_Voltage, Raw_Battery_Volts;
@@ -258,9 +278,6 @@ bool Odo1_Good, Odo2_Good, Chk_Good;
 // Range of valid odometer values
 const uint32_t Odometer_Min = 101428;
 const uint32_t Odometer_Max = 999999;
-// Positions on display
-int dist_x = 260, dist_y = 240;
-int odo_x = 20, odo_y = 240;
 
 // SD Card variables
 bool     SD_Present;
@@ -268,15 +285,24 @@ char     SD_Filename[] = "Odometer.dat";
 File     SD_DataFile;
 uint32_t OdometerSD, Temp_SD, SD_size;
 
-// Meter variables
-int       blocks, new_val, num_segs, seg_size, x1, x2, block_colour;
-int       linearBarX = 15, linearBarY = 10;    // bar starting position in pixels
-const int barLength = 450;                     // length and width in pixels
-const int barWidth  = 50;
-const int seg_value = 5;                   // 5km/hr segments
-const int seg_gap   = 2;                   // gap between segments in pixels
-const int meterMin = 0, meterMax = 200;    // bar scale
+// Position on display
+const int speed_x   = 480 / 2 - 195;    // horizontal, long side
+const int speed_y   = 320 / 2 - 50;     // vertical, short side
+const int totals_x  = 480 / 2;
+const int totals_y  = 320 - 50;
+const int spinner_x = 10;
+const int spinner_y = 320 / 2 + 50;
+const int alert_x   = 480 / 2 + 120;
+const int alert_y   = 320 / 2 - 35;
 
+// Meter variables
+const int barMargin = 10;
+const int barLength = 480 - (2 * barMargin);        // horizontal or long side
+const int barWidth  = 320 / 5;                      // vertical or short side
+const int meterMin = 0, meterMax = Max_barspeed;    // bar scale
+int       blankBarValue, colouredBarValue, block_colour;
+int       linearBarX = barMargin;
+int       linearBarY = barMargin;    // bar starting position in pixels
 
 // Start a Class for each Odomoter and Check
 EEWL Odo1_EEPROM(Odometer1, BUFFER_LEN, BUFFER_START1);
@@ -353,14 +379,6 @@ void setup()
     // this helps to prevent divide by zero errors
     // based on maximum speed and halve it
     period_min = 1000000.0 / (pulses_per_km * Max_vspeed / 3600.0) / 2.0;
-    // =======================================================
-
-    // =======================================================
-    // set some more values for the bar graph
-    // these only need to be calculated once
-    num_segs   = int(0.5 + (float)(meterMax - meterMin) / (float)seg_value);    // calculate number of segments
-    seg_size   = int(0.5 + (float)barLength / (float)num_segs);                 // calculate segment width in pixels
-    linearBarX = linearBarX + (barLength - num_segs * seg_size) / 2;            // centre the bar to allow for rounding errors
     // =======================================================
 
     // Display important startup items
@@ -582,31 +600,39 @@ Odometer_Fixed:
     // =======================================================
 
     // Leave the important messages onscreen for a second
-    delay(1000);
+    delay(1500);
 
     // Now we are into sustained operation
     // Clear the screen and display static items
     myGLCD.clrScr();
     myGLCD.setColor(VGA_GRAY);
     myGLCD.setBackColor(VGA_BLACK);
-    myGLCD.setFont(font0);
-    myGLCD.print((char *)"km/h", speed_x + 300, speed_y + 124);
+    myGLCD.setFont(font1);
+    myGLCD.print((char *)"km/h", totals_x + 120, totals_y - 60);
 
     // Display the stored Odometer value
     myGLCD.setColor(text_colour2);
     myGLCD.setFont(font7F);
-    myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
+    myGLCD.printNumI(Odometer_Total, totals_x - 210, totals_y, 6, ' ');
 
     // =======================================================
     // Draw small triangles at predetermined points
-    int Tpoint1 = linearBarX + int(0.5 + (float)barLength / ((float)meterMax / (float)Speed_Marker_1));    // 1st mark
-    int Tpoint2 = linearBarX + int(0.5 + (float)barLength / ((float)meterMax / (float)Speed_Marker_2));    // 2nd mark
-    int Tpoint3 = linearBarX + int(0.5 + (float)barLength / ((float)meterMax / (float)Speed_Marker_3));    // 3rd mark
+    // Bar goes from left to right
+    // linearBarX + barLength - (Speed_Marker_1 / meterMax * barLength)
+    int S1 = linearBarX + int((float)Speed_Marker_1 / (float)meterMax * (float)barLength);    // 1st Mark
+    int S2 = linearBarX + int((float)Speed_Marker_2 / (float)meterMax * (float)barLength);    // 2nd Mark
+    int S3 = linearBarX + int((float)Speed_Marker_3 / (float)meterMax * (float)barLength);    // 3rd Mark
+    int S4 = linearBarX + int((float)Speed_Marker_4 / (float)meterMax * (float)barLength);    // 4th Mark
     myGLCD.setColor(VGA_RED);
-    geo.fillTriangle(Tpoint1 - 4, linearBarY + barWidth + 8, Tpoint1 + 4, linearBarY + barWidth + 8, Tpoint1, linearBarY + barWidth + 2);
-    geo.fillTriangle(Tpoint2 - 4, linearBarY + barWidth + 8, Tpoint2 + 4, linearBarY + barWidth + 8, Tpoint2, linearBarY + barWidth + 2);
-    geo.fillTriangle(Tpoint3 - 4, linearBarY + barWidth + 8, Tpoint3 + 4, linearBarY + barWidth + 8, Tpoint3, linearBarY + barWidth + 2);
+    geo.fillTriangle(S1 - 4, linearBarY + barWidth + 10, S1 + 4, linearBarY + barWidth + 10, S1, linearBarY + barWidth + 5);
+    geo.fillTriangle(S2 - 4, linearBarY + barWidth + 10, S2 + 4, linearBarY + barWidth + 10, S2, linearBarY + barWidth + 5);
+    geo.fillTriangle(S3 - 4, linearBarY + barWidth + 10, S3 + 4, linearBarY + barWidth + 10, S3, linearBarY + barWidth + 5);
+    geo.fillTriangle(S4 - 4, linearBarY + barWidth + 10, S4 + 4, linearBarY + barWidth + 10, S4, linearBarY + barWidth + 5);
     // =======================================================
+
+    // Draw the bar background
+    myGLCD.setColor(block_fill_colour);
+    myGLCD.fillRect(linearBarX, linearBarY, linearBarX + barLength, linearBarY + barWidth);
 
     // Ensure parkbrake status is displayed correctly and not skipped
     Pbrake_last_status = !digitalRead(Pbrake_Input_Pin);
@@ -703,7 +729,7 @@ void loop()
             }
         // Do the actual display
         myGLCD.setFont(font7F);
-        myGLCD.print((char *)"P", PB_x, PB_y);
+        myGLCD.print((char *)"P", alert_x, alert_y);
         Pbrake_last_status = !Pbrake_last_status;
         }
 
@@ -718,12 +744,66 @@ void loop()
         hightime = pulseIn(VSS_Input_Pin, HIGH, pulsein_timeout);
         lowtime  = pulseIn(VSS_Input_Pin, LOW, pulsein_timeout);
         period   = hightime + lowtime;
-        //period = random(period_min, pulsein_timeout);
+        // For testing
+        //period   = random(period_min, pulsein_timeout);
 
         // prevent overflows or divide by zero
         if (period > period_min)
             {
             vss = VSS_constant / (float)period;
+            // Advance the spinner
+            myGLCD.setFont(font1);
+            myGLCD.setColor(text_colour2);
+            myGLCD.setBackColor(VGA_BLACK);
+            switch (spinnerState)
+                {
+                case 1:
+                    // "|"
+                    myGLCD.print("|", spinner_x, spinner_y);
+                    spinnerState++;
+                    break;
+                case 2:
+                    // "/"
+                    myGLCD.print("/", spinner_x, spinner_y);
+                    spinnerState++;
+                    break;
+                case 3:
+                    // "_" 95
+                    // print a space then an underscore shifted higher
+                    // a minus sign is too narrow
+                    myGLCD.print(" ", spinner_x, spinner_y);
+                    myGLCD.print("_", spinner_x, spinner_y - 10);
+                    spinnerState++;
+                    break;
+                case 4:
+                    // "\"
+                    myGLCD.print("\\", spinner_x, spinner_y);
+                    spinnerState++;
+                    break;
+                case 5:
+                    // "|"
+                    myGLCD.print("|", spinner_x, spinner_y);
+                    spinnerState++;
+                    break;
+                case 6:
+                    // "/"
+                    myGLCD.print("/", spinner_x, spinner_y);
+                    spinnerState++;
+                    break;
+                case 7:
+                    // "_" 95
+                    // print a space then an underscore shifted higher
+                    // a minus sign is too narrow
+                    myGLCD.print(" ", spinner_x, spinner_y);
+                    myGLCD.print("_", spinner_x, spinner_y - 10);
+                    spinnerState++;
+                    break;
+                case 8:
+                    // "\"
+                    myGLCD.print("\\", spinner_x, spinner_y);
+                    spinnerState = 1;
+                    break;
+                }
             }
         else
             {
@@ -733,9 +813,9 @@ void loop()
     else
         {
         // Demo mode, invent values
-        vss = random(5, 185);
+        vss = random(5, Max_vspeed);
         vss = constrain(vss, last_vspeed - 20, last_vspeed + 20);
-        //vss = 60;
+        //vss = 40;
         }
 
     // Set vspeed from the float vss
@@ -780,7 +860,7 @@ void loop()
     myGLCD.setColor(text_colour2);
     myGLCD.setBackColor(VGA_BLACK);
     myGLCD.setFont(font7F);
-    myGLCD.printNumF(Dist_KM, 2, dist_x, dist_y, '.', 6, ' ');
+    myGLCD.printNumF(Dist_KM, 2, totals_x + 20, totals_y, '.', 6, ' ');
 
 
     // =======================================================
@@ -798,7 +878,7 @@ void loop()
         Odometer_Total += int(Odometer_Temp / 1000.0 + 0.5);
 
         // Display the new Odo total since the value has just updated
-        myGLCD.printNumI(Odometer_Total, odo_x, odo_y, 6, ' ');
+        myGLCD.printNumI(Odometer_Total, totals_x - 210, totals_y, 6, ' ');
 
         // Write Odometer_Total to EEPROM only if Power is good
         if (power_good())
@@ -850,7 +930,6 @@ void loop()
         myGLCD.setColor(text_colour1);
         myGLCD.printNumI(vspeed, speed_x, speed_y, 3, '0');
         }
-    last_vspeed = vspeed;
 
     // =======================================================
     // Draw the barmeter
@@ -858,51 +937,46 @@ void loop()
 
     // Limit the speed to what the bar meter can handle
     // even though the printed digits might be a greater value
-    constrain(vspeed, meterMin, meterMax);
+    barspeed = constrain(vspeed, meterMin, meterMax);
 
-    int new_val = map(vspeed, meterMin, meterMax, 0, num_segs);
+    colouredBarValue = map(barspeed, meterMin, meterMax, 0, barLength);
 
-    // Draw colour blocks for the segents
-    for (blocks = 0; blocks < num_segs; blocks++)
+    if (!dim_mode)
         {
-        // Calculate pair of coordinates for segment start and end
-        x1 = linearBarX + (blocks * seg_size);                    // starting X coord
-        x2 = linearBarX + ((blocks + 1) * seg_size) - seg_gap;    // ending X coord allowing for gap
-
-        if (new_val > 0 && blocks < new_val)
-            {
-            if (!dim_mode)
-                {
-                // All colours available fir bright mode
-                // Choose colour from scheme using the Rainbow function
-                // uncomment one line
-                //block_colour = VGA_RED;    // Fixed colour
-                //block_colour = VGA_GREEN;  // Fixed colour
-                //block_colour = VGA_NAVY;   // Fixed colour
-                //block_colour = rainbow(map(blocks, 0, num_segs, 0, 127));   // Blue to red
-                block_colour = rainbow(map(blocks, 0, num_segs, 63, 127));    // Green to red
-                //block_colour = rainbow(map(blocks, 0, num_segs, 127, 63));  // Red to green
-                //block_colour = rainbow(map(blocks, 0, num_segs, 127, 0));   // Red to blue
-                }
-            else
-                {
-                // Dim mode, headlingts on
-                block_colour = text_colour2;
-                }
-
-            // Fill in coloured blocks
-            // This is the foreground colour of the bar graph
-            myGLCD.setColor(block_colour);
-            myGLCD.fillRect(x1, linearBarY, x2, linearBarY + barWidth);
-            }
-        else
-            {
-            // Fill in blank segments
-            // This is the background colour of the bar graph
-            myGLCD.setColor(block_fill_colour);
-            myGLCD.fillRect(x1, linearBarY, x2, linearBarY + barWidth);
-            }
+        // All colours available fir bright mode
+        // Choose colour scheme using the Rainbow function
+        // uncomment one line
+        //block_colour = TFT_RED;    // Fixed colour
+        //block_colour = TFT_GREEN;  // Fixed colour
+        //block_colour = TFT_NAVY;   // Fixed colour
+        //block_colour = rainbow(map(barspeed, meterMin, meterMax, 0, 127));   // Blue to red
+        block_colour = rainbow(map(barspeed, meterMin, meterMax, 63, 127));    // Green to red
+        //block_colour = rainbow(map(barspeed, meterMin, meterMax, 127, 63));  // Red to green
+        //block_colour = rainbow(map(barspeed, meterMin, meterMax, 127, 0));   // Red to blue
         }
+    else
+        {
+        // Dim mode, headlingts on
+        block_colour = text_colour2;
+        }
+
+    // The bar goes from left to right
+
+    // Fill in coloured blocks
+    // This is the foreground colour of the bar graph
+    myGLCD.setColor(block_colour);
+    myGLCD.fillRect(linearBarX, linearBarY, linearBarX + colouredBarValue, linearBarY + barWidth);
+
+    // Fill in blank segments
+    // This is the background colour of the bar graph
+    if (last_barspeed > barspeed)
+        {
+        myGLCD.setColor(block_fill_colour);
+        myGLCD.fillRect(linearBarX + colouredBarValue, linearBarY, linearBarX + barLength, linearBarY + barWidth);
+        }
+
+    last_barspeed = barspeed;
+    last_vspeed   = vspeed;
 
 
     }    // End void loop
