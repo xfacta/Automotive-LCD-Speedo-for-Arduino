@@ -64,7 +64,7 @@ float Max_vspeed     = 240;    // set maximum speed for digits
 int   Max_barspeed   = 200;    // set maximum speed for bar graph
 int   Speed_Marker_1 = 40;     // set 1st speed marker on bar graph
 int   Speed_Marker_2 = 60;     // set 2nd speed marker on bar graph
-int   Speed_Marker_3 = 80;    // set 3rd speed marker on bar graph
+int   Speed_Marker_3 = 80;     // set 3rd speed marker on bar graph
 int   Speed_Marker_4 = 100;    // set 4th speed marker on bar graph
 
 // Set whether digitial inputs are active low or active high
@@ -190,7 +190,6 @@ extern uint8_t SevenSegment96x144Num[];
 #define font7L SevenSegment96x144Num
 #define font7F SevenSegmentFull
 
-
 // Set colours used for bright or dim mode
 // this display doesnt have a controllable backlight
 // so darker text colours are used for dim mode
@@ -198,8 +197,6 @@ bool dim_mode          = false;
 int  text_colour1      = VGA_WHITE;     // or VGA_SILVER
 int  text_colour2      = VGA_SILVER;    // or VGA_GRAY
 int  block_fill_colour = VGA_GRAY;      // or VGA_BLACK
-int  startup_time      = 10000;
-
 
 // Voltage calculations
 /*
@@ -257,6 +254,7 @@ uint32_t odoCheckTime;                   // Last time saved odometer value was v
 uint32_t odoCheckInterval   = 600000;    // minimum time between checking saved odometer values, 10 minutes
 bool     Pbrake_last_status = false;     // last status of Park Brake
 int      spinnerState       = 1;
+int      startup_time       = 10000;
 
 // Speed variables
 float    freq, vss, distance_per_VSS_pulse, pulses_per_km, VSS_constant;
@@ -384,10 +382,10 @@ void setup()
     // Display important startup items
     myGLCD.InitLCD(LANDSCAPE);
     myGLCD.clrScr();
+    myGLCD.setFont(font0);
     myGLCD.setColor(VGA_GRAY);
     myGLCD.setBackColor(VGA_BLACK);
-    myGLCD.setFont(font0);
-    myGLCD.print((char *)Version, CENTER, CENTER);
+     myGLCD.print(Version, CENTER, CENTER);
 
     // =======================================================
     // Try to access the SD Card
@@ -450,7 +448,7 @@ void setup()
             }
         }
     // Print the Odo1 status with a suitable colour
-    myGLCD.print((char *)"OD1 ", LEFT, 100);
+     myGLCD.print("OD1 ", LEFT, 100);
 
     if (!Odo2_EEPROM.get(Odometer2))
         {
@@ -470,7 +468,7 @@ void setup()
             }
         }
     // Print the Odo2 status with a suitable colour
-    myGLCD.print((char *)"OD2 ", LEFT, 120);
+     myGLCD.print("OD2 ", LEFT, 120);
 
     if (!Check_EEPROM.get(Odometer_Verify))
         {
@@ -490,7 +488,7 @@ void setup()
             }
         }
     // Print the Odo Chk status with a suitable colour
-    myGLCD.print((char *)"Chk ", LEFT, 140);
+     myGLCD.print("Chk ", LEFT, 140);
 
     // Check all values are within acceptable range
     // even if successfully read from EEPROM
@@ -516,12 +514,12 @@ void setup()
     if (Odo1_Good && Odo2_Good && Chk_Good)
         {
         myGLCD.setColor(VGA_GREEN);
-        myGLCD.print((char *)"EEPROM good", CENTER, 140);
+         myGLCD.print("EEPROM good", CENTER, 140);
         // All values agree
         if (~Odometer_Verify == Odometer1 && Odometer1 == Odometer2)
             {
             Odometer_Total = ~Odometer_Verify;
-            myGLCD.print((char *)"Values good", CENTER, 160);
+             myGLCD.print("Values good", CENTER, 160);
             //------------------------------
             // Skip any further checks
             goto Odometer_Fixed;
@@ -530,15 +528,15 @@ void setup()
         else
             {
             myGLCD.setColor(VGA_YELLOW);
-            myGLCD.print((char *)"Values mismatched", CENTER, 160);
+             myGLCD.print("Values mismatched", CENTER, 160);
             }
         }
     else
         {
         myGLCD.setColor(VGA_RED);
-        myGLCD.print((char *)"EEPROM bad", CENTER, 160);
-        myGLCD.print((char *)"Attempting", CENTER, 180);
-        myGLCD.print((char *)"Recovery", CENTER, 200);
+         myGLCD.print("EEPROM bad", CENTER, 160);
+         myGLCD.print("Attempting", CENTER, 180);
+         myGLCD.print("Recovery", CENTER, 200);
         }
 
     // Further Consistency checks are required
@@ -578,7 +576,7 @@ void setup()
         // Read has already been successful
         {
         myGLCD.setColor(VGA_GREEN);
-        myGLCD.print((char *)"SDC good", CENTER, 220);
+         myGLCD.print("SDC good", CENTER, 220);
         Odometer_Total = max(Odometer_Total, OdometerSD);
         }
 
@@ -605,14 +603,14 @@ Odometer_Fixed:
     // Now we are into sustained operation
     // Clear the screen and display static items
     myGLCD.clrScr();
+    myGLCD.setFont(font1);
     myGLCD.setColor(VGA_GRAY);
     myGLCD.setBackColor(VGA_BLACK);
-    myGLCD.setFont(font1);
-    myGLCD.print((char *)"km/h", totals_x + 120, totals_y - 60);
+     myGLCD.print("km/h", totals_x + 120, totals_y - 60);
 
     // Display the stored Odometer value
-    myGLCD.setColor(text_colour2);
     myGLCD.setFont(font7F);
+    myGLCD.setColor(text_colour2);
     myGLCD.printNumI(Odometer_Total, totals_x - 210, totals_y, 6, ' ');
 
     // =======================================================
@@ -729,7 +727,7 @@ void loop()
             }
         // Do the actual display
         myGLCD.setFont(font7F);
-        myGLCD.print((char *)"P", alert_x, alert_y);
+         myGLCD.print("P", alert_x, alert_y);
         Pbrake_last_status = !Pbrake_last_status;
         }
 
@@ -777,6 +775,8 @@ void loop()
                     break;
                 case 4:
                     // "\"
+                    // need to "eascape" this character for it to print
+                    // and not interfere with the compiler
                     myGLCD.print("\\", spinner_x, spinner_y);
                     spinnerState++;
                     break;
@@ -800,6 +800,8 @@ void loop()
                     break;
                 case 8:
                     // "\"
+                    // need to "eascape" this character for it to print
+                    // and not interfere with the compiler
                     myGLCD.print("\\", spinner_x, spinner_y);
                     spinnerState = 1;
                     break;
@@ -857,9 +859,9 @@ void loop()
     Dist_KM = Dist_Total_M / 1000.0;
 
     // Display the trip distance each loop
+    myGLCD.setFont(font7F);
     myGLCD.setColor(text_colour2);
     myGLCD.setBackColor(VGA_BLACK);
-    myGLCD.setFont(font7F);
     myGLCD.printNumF(Dist_KM, 2, totals_x + 20, totals_y, '.', 6, ' ');
 
 
@@ -937,7 +939,7 @@ void loop()
 
     // Limit the speed to what the bar meter can handle
     // even though the printed digits might be a greater value
-    barspeed = constrain(vspeed, meterMin, meterMax);
+    barspeed         = constrain(vspeed, meterMin, meterMax);
 
     colouredBarValue = map(barspeed, meterMin, meterMax, 0, barLength);
 
@@ -1012,8 +1014,8 @@ bool power_good()
 uint32_t read_SD()
     {
     myGLCD.setFont(font0);
-    myGLCD.setBackColor(VGA_BLACK);
     myGLCD.setColor(VGA_BLACK);
+    myGLCD.setBackColor(VGA_BLACK);
     SD_DataFile = SD.open(SD_Filename, FILE_READ);
     if (!SD_DataFile)
         // Unable to open file
@@ -1041,7 +1043,7 @@ uint32_t read_SD()
             }
         }
     // This should only appear if there is a problem, or debug mode
-    myGLCD.print((char *)"SDC ", LEFT, 160);
+     myGLCD.print("SDC ", LEFT, 160);
     return Temp_SD;
     }
 
@@ -1053,8 +1055,8 @@ uint32_t read_SD()
 uint32_t update_SD(uint32_t Temp_SD)
     {
     myGLCD.setFont(font0);
-    myGLCD.setBackColor(VGA_BLACK);
     myGLCD.setColor(VGA_BLACK);
+    myGLCD.setBackColor(VGA_BLACK);
     SD_DataFile = SD.open(SD_Filename, FILE_WRITE);
     if (!SD_DataFile)
         // Unable to open file
@@ -1075,7 +1077,7 @@ uint32_t update_SD(uint32_t Temp_SD)
             }
         }
     // This should only appear if there is a problem, or debug mode
-    myGLCD.print((char *)"SDC ", LEFT, 160);
+     myGLCD.print("SDC ", LEFT, 160);
     }
 
 
@@ -1144,8 +1146,8 @@ void Verify_Write()
             update_SD(Odometer_Total);
             }
 
-        myGLCD.setBackColor(VGA_BLACK);
         myGLCD.setFont(font0);
+        myGLCD.setBackColor(VGA_BLACK);
 
         // Read the values stored in EEPROM
         Odo1_EEPROM.get(Odometer1);
@@ -1174,7 +1176,7 @@ void Verify_Write()
                 myGLCD.setColor(VGA_BLACK);
                 }
             }
-        myGLCD.print((char *)"OD1 ", LEFT, 100);
+         myGLCD.print("OD1 ", LEFT, 100);
 
         if (Odometer2 != Odometer_Total)
             {
@@ -1196,7 +1198,7 @@ void Verify_Write()
                 myGLCD.setColor(VGA_BLACK);
                 }
             }
-        myGLCD.print((char *)"OD2 ", LEFT, 120);
+         myGLCD.print("OD2 ", LEFT, 120);
 
         if (Odometer_Verify != ~Odometer_Total)
             {
@@ -1219,7 +1221,7 @@ void Verify_Write()
                 myGLCD.setColor(VGA_BLACK);
                 }
             }
-        myGLCD.print((char *)"Chk ", LEFT, 140);
+         myGLCD.print("Chk ", LEFT, 140);
 
         if (Debug_Mode)
             {
