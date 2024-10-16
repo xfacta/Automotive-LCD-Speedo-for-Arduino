@@ -82,13 +82,16 @@ float Kludge_Factor = 1.000;
 // Set these to ensure correct voltage readings of analog inputs
 const float vcc_ref = 4.92;       // measure the 5 volts DC and set it here
 const float R1      = 15000.0;    // measure and set the voltage divider values
-const float R2      = 33000.0;    // for accurate voltage measurements
+const float R2      = 39000.0;    // for accurate voltage measurements
 
 // Power Good safe voltage level
 // used to deny eeprom writes while supply voltage is too low
 // set to about 11 or 12 for normal use
 // set to 0 for demo use or testing
-const float Safe_Voltage = 0.0;
+const float Safe_Voltage    = 0.0;
+
+const int   Sensor_Delay    = 2;    // delay between repeated sensor readings
+const int   Sensor_Readings = 5;    // number of repeated sensor readings to average
 
 //========================================================================
 
@@ -218,26 +221,22 @@ int  block_fill_colour = VGA_GRAY;      // or VGA_BLACK
   Vin = analogRead(ANALOG_IN_PIN) * Input_Multiplier
 */
 const float Input_Multiplier = vcc_ref / 1024.0 / (R2 / (R1 + R2));
-
+float       Sensor_Average;
+int         i;    // used in for loops
 
 // Common pin definitions
 const int SD_Select = 53;
 
 // Pin definitions for digital inputs
 // Mega2560 Serial2 pins 17(RX), 16(TX)
-const int Oil_Press_Pin    = 0;    // Oil pressure digital input pin
-const int Parker_Light_Pin = 1;    // Parker lights digital input pin
-const int Low_Beam_Pin     = 2;    // Low beam digital input pin
-const int High_Beam_Pin    = 3;    // High beam digital input pin
-const int Pbrake_Input_Pin = 4;    // Park brake input pin
-const int VSS_Input_Pin    = 5;    // Speed frequency input pin
-const int RPM_Input_Pin    = 6;    // RPM frequency INPUT pin
-const int Button_Pin       = 7;    // Button momentary input
-
-// Used in the debounce routine
-int switch_pin;
-int debounce_test;
-int debounce_result;
+const int Button_Pin       = 0;    // Button momentary input
+const int Pbrake_Input_Pin = 1;    // Park brake input pin
+const int Oil_Press_Pin    = 2;    // Oil pressure digital input pin, needs to be 2 or 3 for ISR
+const int Parker_Light_Pin = 3;    // Parker lights digital input pin
+const int Low_Beam_Pin     = 4;    // Low beam digital input pin
+const int High_Beam_Pin    = 5;    // High beam digital input pin
+const int VSS_Input_Pin    = 6;    // Speed frequency input pin
+const int RPM_Input_Pin    = 7;    // RPM frequency INPUT pin
 
 // Pin definitions for analog inputs
 const int Temp_Pin       = A0;    // Temperature analog input pin - OneWire sensor on pin 14
@@ -980,12 +979,12 @@ void loop()
 // and the threshold is calculated in Setup
 bool power_good()
 {
-    Raw_Battery_Volts = analogRead(Batt_Volt_Pin);
+    Raw_Battery_Volts = Get_Sensor_Val(Batt_Volt_Pin);
     return (Raw_Battery_Volts >= Converted_Safe_Voltage);
 }
 
 
-// ------------------------------------------------------
+// ##################################################################################################################################################
 
 
 // Read from SD Card
@@ -1026,7 +1025,7 @@ uint32_t read_SD()
 }
 
 
-// ------------------------------------------------------
+// ##################################################################################################################################################
 
 
 // Write to SD Card
@@ -1059,18 +1058,7 @@ uint32_t update_SD(uint32_t Temp_SD)
 }
 
 
-// ------------------------------------------------------
-
-
-bool debounce(int switch_pin)
-{
-    static uint16_t state = 0;
-    state                 = (state << 1) | digitalRead(switch_pin) | debounce_test;
-    return (state == debounce_result);
-}
-
-
-// ------------------------------------------------------
+// ##################################################################################################################################################
 
 
 // Function to return a 16 bit rainbow colour
@@ -1200,6 +1188,28 @@ void Verify_Write()
     }    //  end if power good
 
 }    //  end void Verify_Write()
+
+
+
+// ##################################################################################################################################################
+
+
+
+int Get_Sensor_Val(byte Sensor_Pin)
+{
+
+    // Arithmetic average
+    Sensor_Average = 0;
+    for (i = 1; i <= Sensor_Readings; i++)
+    {
+        Sensor_Average += analogRead(Sensor_Pin);
+        delay(Sensor_Delay);
+    }
+    Sensor_Average = Sensor_Average / float(Sensor_Readings);
+
+    return int(Sensor_Average + 0.5);
+
+}    // end void Get_Sensor_Val
 
 
 
